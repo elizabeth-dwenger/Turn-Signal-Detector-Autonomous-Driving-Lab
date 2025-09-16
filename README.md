@@ -26,8 +26,8 @@ pip install -r requirements.txt
 ### Directory Structure
 
 ```
-turn-signal-dataset/
-├── notebooks/              # Jupyter notebooks for exploration
+ADL/
+├── jupyter/              # Jupyter notebooks for exploration
 ├── sampled_images/            # Local sampled images (ignored by Git)
 ├── .env                    # API keys (not tracked by Git)
 ├── .gitignore
