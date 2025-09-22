@@ -46,14 +46,14 @@ ADL/
 ```
 [
   {
-    "image": "sampled_images/YYYY-MM-DD-HH-MM-SS_project-name/camera_name/predict/crops/type/xxxxx.jpg",
+    "image": "sampled_images/YYYY-MM-DD-HH-MM-SS_project-name/camera_name/predict/crops/car/xxxxx.jpg",
     "labels": [
       "label_one",
       "label_two"
     ]
   },
   {
-    "image": "sampled_images/YYYY-MM-DD-HH-MM-SS_project-name/camera_name/predict/crops/type/xxxxx.jpg",
+    "image": "sampled_images/YYYY-MM-DD-HH-MM-SS_project-name/camera_name/predict/crops/car/xxxxx.jpg",
     "labels": []
   },
   ...
