@@ -16,7 +16,6 @@ def open_image(image_path):
         print(f"Could not open image: {e}")
 
 def get_image_paths(base_dir):
-    """Finds all image files in a directory and its subdirectories"""
     image_paths = []
     for root, _, files in os.walk(base_dir):
         for file in files:
@@ -40,7 +39,6 @@ def interactive_labeling(json_file, image_base_dir):
             json.dump(annotations, f, indent=2)
         print(f"Created a new annotation file with {len(annotations)} images.")
 
-    # Start the interactive labeling process
     for entry in annotations:
         if entry["labels"]:
             continue
