@@ -4,7 +4,7 @@ This repository contains code and documentation for creating a dataset of vehicl
 
 ---
 
-## 📦 Project Setup
+## Project Setup
 
 ### Create and Activate a Python Environment
 
@@ -40,3 +40,22 @@ ADL/
 1. Create a .env file in the project root
 2. Add: OPENAI_API_KEY=sk-your-key-here
 3. Ensure .env is in .gitignore 
+
+### JSON annotations format
+
+```
+[
+  {
+    "image": "sampled_images/YYYY-MM-DD-HH-MM-SS_project-name/camera_name/predict/crops/type/xxxxx.jpg",
+    "labels": [
+      "label_one",
+      "label_two"
+    ]
+  },
+  {
+    "image": "sampled_images/YYYY-MM-DD-HH-MM-SS_project-name/camera_name/predict/crops/type/xxxxx.jpg",
+    "labels": []
+  },
+  ...
+]
+```
