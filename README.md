@@ -1,6 +1,6 @@
 # 🚗 Turn Signal Dataset Project
 
-This repository contains code and documentation for creating a dataset of vehicle light states (left/right turn signals, hazard, brake, tail lights).  
+This repository contains code and documentation for creating a dataset of vehicle light states (left/right turn signals, hazard, tail light, tail light off, and no visible tail lights).  
 
 ---
 
