@@ -1,0 +1,19 @@
+# Create a text file which selects all car images which are at least 50x50 pixels and landscape orientation (width > length)
+
+ssh yourusername@rocket-cluster "
+  find /gpfs/space/projects/ml2024/2024-* -type f \( -iname '*.jpg' -o -iname '*.jpeg' \) \
+  | grep 'predict/crops/car' \
+  | while read -r img; do
+      dims=\$(identify -format '%w %h' \"\$img\" 2>/dev/null) || continue
+      set -- \$dims
+      w=\$1
+      h=\$2
+      if [ \"\$w\" -gt 50 ] && [ \"\$h\" -gt 50 ] && [ \"\$w\" -gt \"\$h\" ]; then
+        echo \"\$img\"
+      fi
+    done > /gpfs/space/filtered_landscape_images.txt
+"
+
+# Check how many passed the filter
+ssh yourusername@rocket-cluster "head /gpfs/space/filtered_landscape_images.txt"
+ssh yourusername@rocket-cluster "wc -l /gpfs/space/filtered_landscape_images.txt"
