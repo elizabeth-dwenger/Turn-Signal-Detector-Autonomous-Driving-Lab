@@ -29,6 +29,7 @@ pip install -r requirements.txt
 ADL/
 ├── jupyter/              # Jupyter notebooks for exploration
 ├── sampled_images/            # Local sampled images (ignored by Git)
+├── front_back_images/         # Local sampled images prior to filtering
 ├── .env                    # API keys (not tracked by Git)
 ├── .gitignore
 ├── requirements.txt
@@ -46,16 +47,19 @@ ADL/
 ```
 [
   {
-    "image": "sampled_images/YYYY-MM-DD-HH-MM-SS_project-name/camera_name/predict/crops/car/xxxxx.jpg",
-    "labels": [
-      "label_one",
-      "label_two"
-    ]
+    "image": "../data_sample/car_001.jpg",
+    "turn_signal": "left",
+    "tail_light": "on"
   },
   {
-    "image": "sampled_images/YYYY-MM-DD-HH-MM-SS_project-name/camera_name/predict/crops/car/xxxxx.jpg",
-    "labels": []
+    "image": "../data_sample/car_002.jpg",
+    "turn_signal": "none",
+    "tail_light": "no_visible"
   },
-  ...
+  {
+    "image": "../data_sample/car_003.jpg",
+    "turn_signal": "both",
+    "tail_light": "off"
+  }
 ]
 ```
