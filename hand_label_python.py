@@ -3,6 +3,9 @@ import json
 import subprocess
 import platform
 
+TURN_SIGNAL_OPTIONS = {"l": "left", "r": "right", "n": "none", "b": "both"}
+TAIL_LIGHT_OPTIONS = {"o": "on", "f": "off", "v": "not_visible"}
+
 def open_image(image_path):
     """Opens an image with the system default viewer"""
     try:
@@ -20,51 +23,58 @@ def get_image_paths(base_dir):
     for root, _, files in os.walk(base_dir):
         for file in files:
             if file.lower().endswith(('.jpg', '.jpeg')):
-                image_paths.append(os.path.join(root, file))
-    return image_paths
+                abs_path = os.path.join(root, file)
+                rel_path = os.path.relpath(abs_path, base_dir)
+                image_paths.append(rel_path)
+    return sorted(image_paths)
+
+def prompt_choice(prompt, options_dict):
+    shortcuts = "/".join([f"{k}({v})" for k, v in options_dict.items()])
+    while True:
+        value = input(f"{prompt} [{shortcuts}]: ").strip().lower()
+        if value in options_dict:
+            return options_dict[value]
+        if value in options_dict.values():
+            return value
+        print(f"Invalid input. Use one of: {', '.join(options_dict.values())} or their shortcuts.")
 
 def interactive_labeling(json_file, image_base_dir):
-    # Try to load existing annotations
+    # Load/initialize annotation list
     try:
         with open(json_file, "r") as f:
             annotations = json.load(f)
         print(f"Loaded existing annotations from {json_file}.")
     except (FileNotFoundError, json.JSONDecodeError):
-        # If file doesn't exist or is empty, auto-populate it
         print(f"No valid annotation file found. Auto-populating from {image_base_dir}...")
         image_paths = get_image_paths(image_base_dir)
-        annotations = [{"image": path, "labels": []} for path in image_paths]
-        
+        annotations = [{"image": path, "turn_signal": "", "tail_light": ""} for path in image_paths]
         with open(json_file, "w") as f:
             json.dump(annotations, f, indent=2)
         print(f"Created a new annotation file with {len(annotations)} images.")
 
     for entry in annotations:
-        if entry["labels"]:
+        if entry["turn_signal"] and entry["tail_light"]:
             continue
-            
+
+        image_path = os.path.join(image_base_dir, entry["image"])
         print(f"\nImage: {entry['image']}")
-        open_image(entry["image"])
+        open_image(image_path)
 
-        labels_input = input("Enter labels (comma-separated), '-' for no labels, or Enter to skip: ").strip()
-        if labels_input == "":
-            print("Skipped for now.")
-            continue
-        elif labels_input == "-":
-            entry["labels"] = []
-            print("Marked as no labels.")
-        else:
-            entry["labels"] = [label.strip() for label in labels_input.split(",")]
-            print(f"Saved labels: {entry['labels']}")
+        turn_signal = prompt_choice("Turn signal", TURN_SIGNAL_OPTIONS)
+        tail_light = prompt_choice("Tail light", TAIL_LIGHT_OPTIONS)
 
-        # Save progress after each change
+        entry["turn_signal"] = turn_signal
+        entry["tail_light"] = tail_light
+        print(f"Saved: turn_signal={turn_signal}, tail_light={tail_light}")
+
         with open(json_file, "w") as f:
             json.dump(annotations, f, indent=2)
 
-    print("\nAll done! Your annotations are up to date.")
+    print("\n All done! Your annotations are up to date.")
 
+if __name__ == "__main__":
+    interactive_labeling("hand_labeled_annotations.json", "sampled_images")
 
-interactive_labeling("hand_labeled_annotations.json", "sampled_images")
 
 # python hand_label.py
-# Opens image, type left_turn, right_turn, hazard, no_visible_light, tail_light_on, or - (for no lights no)
+# Opens image, type one of the shortcuts or the full name
