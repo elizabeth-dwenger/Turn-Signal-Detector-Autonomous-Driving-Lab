@@ -26,6 +26,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms, models
+from sklearn.metrics import precision_recall_fscore_support, accuracy_score
 
 if torch.cuda.is_available():
     device = torch.device("cuda")
@@ -37,13 +38,7 @@ else:
     device = torch.device("cpu")
     print("Using CPU")
 
-try:
-    from sklearn.metrics import precision_recall_fscore_support, accuracy_score
-    SKL = True
-except Exception:
-    SKL = False
-
-def set_seed(seed=42):
+def set_seed(seed=612):
     random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
@@ -79,10 +74,8 @@ class SimpleImageDataset(Dataset):
         return img, label
 
 def build_model(num_classes=2, pretrained=True):
-    if pretrained:
-        weights = models.ResNet18_Weights.DEFAULT
-    else:
-        weights = None
+    # Always use pretrained weights
+    weights = models.ResNet18_Weights.DEFAULT
     model = models.resnet18(weights=weights)
     in_features = model.fc.in_features
     model.fc = nn.Linear(in_features, num_classes)
@@ -104,35 +97,24 @@ def evaluate(model, loader, device):
             preds.extend(pred)
             trues.extend(labels.cpu().tolist())
     avg_loss = total_loss / len(loader.dataset)
-    if SKL:
-        acc = accuracy_score(trues, preds)
-        prec, rec, f1, _ = precision_recall_fscore_support(trues, preds, average="binary", zero_division=0)
-        return avg_loss, acc, prec, rec, f1
-    else:
-        acc = sum(p==t for p,t in zip(preds, trues)) / len(trues)
-        return avg_loss, acc, None, None, None
+    acc = accuracy_score(trues, preds)
+    prec, rec, f1, _ = precision_recall_fscore_support(trues, preds, average="binary", zero_division=0)
+    return avg_loss, acc, prec, rec, f1
 
 def train(args):
     set_seed(args.seed)
     print("Using device:", device)
 
-    # Transforms - using updated normalization values from ResNet18_Weights.DEFAULT
-    train_transform = transforms.Compose([
-        transforms.Resize((args.img_size, args.img_size)),
-        transforms.RandomHorizontalFlip(),
-        transforms.ToTensor(),
-        transforms.Normalize([0.485, 0.456, 0.406],
-                             [0.229, 0.224, 0.225]),
-    ])
-    val_transform = transforms.Compose([
+    # Transforms
+    transform = transforms.Compose([
         transforms.Resize((args.img_size, args.img_size)),
         transforms.ToTensor(),
         transforms.Normalize([0.485, 0.456, 0.406],
                              [0.229, 0.224, 0.225]),
     ])
 
-    train_ds = SimpleImageDataset(args.train_file, args.img_root, transform=train_transform)
-    val_ds = SimpleImageDataset(args.val_file, args.img_root, transform=val_transform)
+    train_ds = SimpleImageDataset(args.train_file, args.img_root, transform=transform)
+    val_ds = SimpleImageDataset(args.val_file, args.img_root, transform=transform)
     train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True,
                              num_workers=args.num_workers, pin_memory=True,
                              persistent_workers=True if args.num_workers > 0 else False)
@@ -140,7 +122,7 @@ def train(args):
                            num_workers=args.num_workers, pin_memory=True,
                            persistent_workers=True if args.num_workers > 0 else False)
 
-    model = build_model(num_classes=2, pretrained=not args.no_pretrained)
+    model = build_model(num_classes=2, pretrained=True)
     model = model.to(device)
 
     criterion = nn.CrossEntropyLoss()
@@ -169,10 +151,9 @@ def train(args):
         val_loss, val_acc, val_prec, val_rec, val_f1 = evaluate(model, val_loader, device)
         elapsed = time.time() - start
         print(f"Epoch {epoch}/{args.epochs} | time {elapsed:.1f}s | train_loss {train_loss:.4f} | val_loss {val_loss:.4f} | val_acc {val_acc:.4f}")
+        print(f"    precision {val_prec:.4f} recall {val_rec:.4f} f1 {val_f1:.4f}")
 
-        if SKL and val_prec is not None:
-            print(f"    precision {val_prec:.4f} recall {val_rec:.4f} f1 {val_f1:.4f}")
-
+        # Scheduler step
         scheduler.step(val_loss)
 
         # Save best
@@ -204,7 +185,6 @@ if __name__ == "__main__":
     parser.add_argument("--weight-decay", type=float, default=1e-4)
     parser.add_argument("--img-size", type=int, default=224)
     parser.add_argument("--save-dir", default="runs")
-    parser.add_argument("--no-pretrained", action="store_true", help="Disable pretrained weights")
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--seed", type=int, default=42)
