@@ -4,11 +4,10 @@ paths may be relative to --img-root or absolute.
 saves best model to --save-dir/best_model.pth
 
  example run:
- caffeinate python scripts/train_front_back.py \
+caffeinate python scripts/train_front_back.py \
   --train-file train_front_back.txt \
   --val-file val_front_back.txt \
   --img-root front_back_images \
-  --model-name resnet18 \
   --epochs 8 \
   --batch-size 32 \
   --lr 1e-4 \
@@ -21,7 +20,6 @@ import random
 from pathlib import Path
 from PIL import Image
 import time
-import math
 
 import torch
 import torch.nn as nn
@@ -80,38 +78,14 @@ class SimpleImageDataset(Dataset):
             img = self.transform(img)
         return img, label
 
-def replace_final_layer(model, num_classes):
-    # Robustly replace final linear layer for many torchvision architectures
-    if hasattr(model, "fc"):
-        in_features = model.fc.in_features
-        model.fc = nn.Linear(in_features, num_classes)
-    elif hasattr(model, "classifier"):
-        cls = model.classifier
-        # if Sequential, replace last Linear
-        if isinstance(cls, nn.Sequential):
-            for i in range(len(cls)-1, -1, -1):
-                if isinstance(cls[i], nn.Linear):
-                    in_features = cls[i].in_features
-                    cls[i] = nn.Linear(in_features, num_classes)
-                    model.classifier = cls
-                    return
-        elif isinstance(cls, nn.Linear):
-            in_features = cls.in_features
-            model.classifier = nn.Linear(in_features, num_classes)
+def build_model(num_classes=2, pretrained=True):
+    if pretrained:
+        weights = models.ResNet18_Weights.DEFAULT
     else:
-        raise RuntimeError("Could not find a final classifier layer to replace.")
-
-def build_model(name, num_classes=2, pretrained=True):
-    name = name.lower()
-    if name == "resnet18":
-        model = models.resnet18(pretrained=pretrained)
-    elif name == "efficientnet_b0":
-        model = models.efficientnet_b0(pretrained=pretrained)
-    elif name == "mobilenet_v3_small":
-        model = models.mobilenet_v3_small(pretrained=pretrained)
-    else:
-        raise ValueError("Unsupported model: choose resnet18, efficientnet_b0, or mobilenet_v3_small")
-    replace_final_layer(model, num_classes)
+        weights = None
+    model = models.resnet18(weights=weights)
+    in_features = model.fc.in_features
+    model.fc = nn.Linear(in_features, num_classes)
     return model
 
 def evaluate(model, loader, device):
@@ -121,8 +95,8 @@ def evaluate(model, loader, device):
     criterion = nn.CrossEntropyLoss()
     with torch.no_grad():
         for imgs, labels in loader:
-            imgs = imgs.to(device)
-            labels = labels.to(device)
+            imgs = imgs.to(device, non_blocking=True)
+            labels = labels.to(device, non_blocking=True)
             outputs = model(imgs)
             loss = criterion(outputs, labels)
             total_loss += loss.item() * imgs.size(0)
@@ -140,10 +114,9 @@ def evaluate(model, loader, device):
 
 def train(args):
     set_seed(args.seed)
-#    device = torch.device(args.device if torch.cuda.is_available() else "cpu")
     print("Using device:", device)
 
-    # Transforms
+    # Transforms - using updated normalization values from ResNet18_Weights.DEFAULT
     train_transform = transforms.Compose([
         transforms.Resize((args.img_size, args.img_size)),
         transforms.RandomHorizontalFlip(),
@@ -160,10 +133,14 @@ def train(args):
 
     train_ds = SimpleImageDataset(args.train_file, args.img_root, transform=train_transform)
     val_ds = SimpleImageDataset(args.val_file, args.img_root, transform=val_transform)
-    train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=True)
-    val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers, pin_memory=True)
+    train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True,
+                             num_workers=args.num_workers, pin_memory=True,
+                             persistent_workers=True if args.num_workers > 0 else False)
+    val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False,
+                           num_workers=args.num_workers, pin_memory=True,
+                           persistent_workers=True if args.num_workers > 0 else False)
 
-    model = build_model(args.model_name, num_classes=2, pretrained=not args.no_pretrained)
+    model = build_model(num_classes=2, pretrained=not args.no_pretrained)
     model = model.to(device)
 
     criterion = nn.CrossEntropyLoss()
@@ -178,8 +155,8 @@ def train(args):
         running_loss = 0.0
         start = time.time()
         for imgs, labels in train_loader:
-            imgs = imgs.to(device)
-            labels = labels.to(device)
+            imgs = imgs.to(device, non_blocking=True)
+            labels = labels.to(device, non_blocking=True)
             optimizer.zero_grad()
             outputs = model(imgs)
             loss = criterion(outputs, labels)
@@ -196,7 +173,6 @@ def train(args):
         if SKL and val_prec is not None:
             print(f"    precision {val_prec:.4f} recall {val_rec:.4f} f1 {val_f1:.4f}")
 
-        # Scheduler step
         scheduler.step(val_loss)
 
         # Save best
@@ -222,7 +198,6 @@ if __name__ == "__main__":
     parser.add_argument("--train-file", required=True)
     parser.add_argument("--val-file", required=True)
     parser.add_argument("--img-root", required=True, help="Root directory to join relative image paths (or '.' if labels contain absolute paths)")
-    parser.add_argument("--model-name", default="resnet18", choices=["resnet18","efficientnet_b0","mobilenet_v3_small"])
     parser.add_argument("--epochs", type=int, default=8)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--lr", type=float, default=1e-4)
