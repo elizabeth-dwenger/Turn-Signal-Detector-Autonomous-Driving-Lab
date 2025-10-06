@@ -206,7 +206,7 @@ python /home/user/scripts/infer_all_front_back.py \
   --checkpoint /home/user/runs/resnet18_expt/best_model.pth \
   --image-list /home/user/filtered_landscape_images.txt \
   --img-root /data/projects/ml2024/ \
-  --output /home/user/back_of_car_filtered_test.txt \
+  --output /home/user/back_of_car_filtered.txt \
   --device cuda
 ```
 
@@ -215,5 +215,7 @@ Submit and monitor:
 ```
 sbatch run_infer_all_front_back.sbatch
 tail -f back_of_car_infer_<JOB_ID>.out
-wc -l /home/user/back_of_car_filtered_test.txt
+wc -l /home/user/back_of_car_filtered.txt
 ```
+
+**Filtered images:** `1,385,302`
