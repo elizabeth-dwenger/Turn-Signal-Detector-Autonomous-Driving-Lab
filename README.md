@@ -56,7 +56,7 @@ ADL/
   {
     "image": "../data_sample/car_002.jpg",
     "turn_signal": "none",
-    "tail_light": "no_visible"
+    "tail_light": "not_visible"
   },
   {
     "image": "../data_sample/car_003.jpg",
