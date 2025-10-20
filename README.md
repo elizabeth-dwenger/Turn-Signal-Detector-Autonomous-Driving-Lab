@@ -81,7 +81,7 @@ ADL/
 
 * `on`
 * `off`
-* `no_visible`
+* `not_visible`
 
 ---
 
