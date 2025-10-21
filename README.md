@@ -222,7 +222,7 @@ wc -l /home/user/back_of_car_filtered.txt
 
 ---
 
-### OpenAI API Classifier
+## OpenAI API Classifier
 
 1. Install dependencies
 
@@ -250,7 +250,7 @@ It will:
 
 ---
 
-### Grounding DINO Classifier
+## Grounding DINO Classifier
 
 #### **Setup**
 
