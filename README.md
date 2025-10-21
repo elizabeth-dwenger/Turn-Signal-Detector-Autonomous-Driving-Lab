@@ -219,3 +219,75 @@ wc -l /home/user/back_of_car_filtered.txt
 ```
 
 **Filtered images:** `1,385,302`
+
+---
+
+### OpenAI API Classifier
+
+1. Install dependencies
+
+2. Make sure OpenAI API key is setup
+
+3. Make sure you have:
+
+   * The **image dataset** in `sampled_images/`
+   * The **hand-labeled file**: `ADL/hand_labeled_annotations.json`
+   * Double check local directories in scripts before running
+
+#### **Run**
+
+Run openai_test.ipynb
+
+It will:
+
+* Randomly select 100 images by label type from the hand-labeled data
+* Call the OpenAI model 
+* Output JSON results to:
+
+  ```
+  openai_light_predictions.json
+  ```
+
+---
+
+### Grounding DINO Classifier
+
+#### **Setup**
+
+1. Install dependencies:
+
+   ```
+   pip install groundingdino-py transformers torch torchvision matplotlib
+   ```
+
+   *(On M-series Mac, PyTorch will use `mps` automatically.)*
+
+2. Download the model weights:
+
+   ```
+   mkdir -p models
+   wget https://huggingface.co/ShilongLiu/GroundingDINO/resolve/main/groundingdino_swint_ogc.pth -O models/groundingdino_swint_ogc.pth
+   ```
+
+3. Make sure `run_grounding_dino_local.py` points to:
+
+   ```
+   IMAGE_LIST_PATH = "sample_100_for_openai.json"  # same images as OpenAI test
+   OUTPUT_PATH = "grounding_dino_results.json"
+   ```
+
+#### **Run**
+
+```
+python run_grounding_dino_local.py
+```
+
+It will:
+
+* Load the same 100 images
+* Run detection for phrases like `"left turn signal"`, `"right turn signal"`, `"tail light on"`, etc.
+* Output structured results to:
+
+  ```
+  grounding_dino_results.json
+  ```
