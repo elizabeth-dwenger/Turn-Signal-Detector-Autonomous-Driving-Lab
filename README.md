@@ -76,12 +76,14 @@ ADL/
 * `right`
 * `none`
 * `both` (hazard)
+* `unclear`
 
 **Tail Light (`tail_light`)**
 
 * `on`
 * `off`
 * `not_visible`
+* `unclear`
 
 ---
 
