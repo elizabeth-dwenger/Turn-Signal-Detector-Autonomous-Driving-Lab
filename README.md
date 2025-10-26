@@ -151,7 +151,7 @@ rsync -av --files-from=sample_10k.txt user@cluster.example.edu:/ front_back_imag
 ### Training (ResNet-18)
 
 ```
-caffeinate python scripts/train_front_back.py \
+caffeinate python scripts/train_binary.py \
   --train-file train_front_back.txt \
   --val-file val_front_back.txt \
   --img-root front_back_images \
