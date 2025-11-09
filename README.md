@@ -250,9 +250,71 @@ It will:
   openai_light_predictions.json
   ```
 
+| Model & Prompt        | Turn Signal Accuracy | Tail Light Accuracy |
+|----------------------|-------------------|------------------|
+| gpt-4o-mini & prompt 1 | 44%               | 41%              |
+| gpt-4o & prompt 1      | 63%               | 44%              |
+| gpt-4o-mini & prompt 2 | 45%               | 39%              |
+| gpt-4o & prompt 2      | 65%               | 52%              |
+| gpt-4o-mini & prompt 3 | 40%               | 45%              |
+| gpt-4o & prompt 3      | 66%               | 50%              |
+
 ---
 
-## Grounding DINO Classifier
+## ByteTrack Crop Sequencing/Tracking
+
+
+In “/gpfs/space/projects/ml2024/image/predict/labels/xxxxxx.txt” there are the crop “coordinates”, confidence score, etc. Each file is named using a 6-digit number that reflects the order in which it was created. An optional 7th digit is used when an image contains multiple “cars.” This additional digit does not represent a consistent identifier across images. They relate to the jpg crop names in the following:
+
+- Line 0 in txt → crop with just frame ID (e.g., 153781.jpg)
+- Line 1 in txt → crop with frame ID + 2 (e.g., 1537812.jpg)
+- Line 2 in txt → crop with frame ID + 3 (e.g., 1537813.jpg)
+
+
+Using supervision version 0.26.1
+
+1. Run script for preparing crop information for ByteTrack. This script is currently set up for those crops which passed the front/back classification (```back_of_car_filtered.txt```)
+
+```
+source venv/bin/activate
+
+nohup python scripts/prepare_detections_from_yolo_txt.py > log.txt 2>&1 &
+```
+
+nohup & logging is used to monitor progress and keep script from timing out. 
+
+To check progress:
+
+```
+# Check what is running currently
+ps aux | grep scripts/prepare_detections_from_yolo_txt.py
+
+# Watch log file, updates every 10k images and populates checkpoints every 100k
+tail -f log.txt
+```
+
+
+| Column      | Example Value                                    | Meaning / Notes                                                                                     |
+|------------|-------------------------------------------------|---------------------------------------------------------------------------------------------------|
+| sequence   | 2024-03-25-15-40-16_mapping_tartu/camera_fl    | The video/sequence ID from folder structure.                                                       |
+| frame_id   | 000124                                         | Frame number within the sequence.                                                                 |
+| img_path   | /gpfs/space/projects/ml2024/.../000124.jpg     | Path to the image file corresponding to this frame. Matches frame ID.                             |
+| track_id   | 1, 2, 3, …                                     | Unique tracker ID assigned by ByteTrack. IDs are sequential and consistent within the frame.    |
+| class_id   | 2 (mostly), 7 (last row)                       | Object class. This comes from detection CSV.                                                     |
+| score      | 0.899246, 0.870372, …                          | Confidence score from the detection.                                                      |
+| x1, y1, x2, y2 | 1788,1285,2063,1540, etc.                  | Bounding box coordinates in pixels. They are consistent with the image width/height (width=2064, height=1544). |
+| width, height | 2064,1544                                     | Resolution of the frame. Matches sequence.                                                      |
+| crop_path | /gpfs/space/projects/ml2024/.../0001243.jpg     | Full path of the crop, rather than just the frame.                                                  |
+
+2. Run the actual ByteTrack sorter
+
+```
+python scripts/run_bytetrack_from_csv.py
+```
+
+---
+
+## Grounding DINO Classifier (this did not work well)
 
 #### **Setup**
 

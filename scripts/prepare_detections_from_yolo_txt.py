@@ -217,14 +217,14 @@ def main():
                         row = {
                             "sequence": sequence,
                             "frame_id": frame_id,
-                            "crop_path": crop_path,
-                            "frame_path": frame_img_path,
+                            "img_path": frame_img_path,
                             "width": img_w,
                             "height": img_h,
                             "class_id": class_id,
                             "score": score,
                             "x1": x1, "y1": y1,
-                            "x2": x2, "y2": y2
+                            "x2": x2, "y2": y2,
+                            "crop_path": crop_path
                         }
                         
                         # Write directly to main CSV
