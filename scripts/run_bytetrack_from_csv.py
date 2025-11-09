@@ -28,9 +28,9 @@ def main():
         
         # supervision 0.26.1 API
         tracker = sv.ByteTrack(
-            track_activation_threshold=0.5,
-            lost_track_buffer=30,
-            minimum_matching_threshold=0.8,
+            track_activation_threshold=0.6,
+            lost_track_buffer=20,
+            minimum_matching_threshold=0.85,
             frame_rate=30
         )
         
