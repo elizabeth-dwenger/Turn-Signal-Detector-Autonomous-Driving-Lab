@@ -314,6 +314,87 @@ python scripts/run_bytetrack_from_csv.py
 
 ---
 
+## DeepSort Crop Sequencing/Tracking
+
+**Files:**
+- Input: `/gpfs/helios/home/dwenger/detections_with_crop_path.csv`
+- Output: `/gpfs/helios/home/dwenger/tracks_deepsort.csv`
+- Script: `/gpfs/helios/home/dwenger/scripts/run_deepsort_tracking.py`
+
+1. Install Dependencies
+
+```
+source venv/bin/activate
+pip install deep-sort-realtime opencv-python-headless torch torchvision
+```
+
+2. Submit Job
+
+```
+cd /gpfs/helios/home/dwenger/scripts
+sbatch submit_deepsort.sh
+```
+
+3. Monitor
+
+```
+# Check status
+squeue -u dwenger
+
+# Watch log (Ctrl+C to exit, job continues running)
+tail -f deepsort_track_<JOB_ID>.out
+
+# Cancel if needed
+scancel <JOB_ID>
+```
+
+### Output Format
+
+CSV with columns: `sequence`, `frame_id`, `track_id`, `class_id`, `score`, `x1`, `y1`, `x2`, `y2`, `crop_path`, `img_path`, `width`, `height`
+
+### Parameters to Tune
+
+Edit line 52-62 in `run_deepsort_tracking.py`:
+
+#### `max_cosine_distance` (default: 0.3)
+Controls appearance matching strictness (0-1)
+- **0.2**: Strict (fewer ID switches, may break tracks)
+- **0.3**: Balanced 
+- **0.4**: Loose (longer tracks, more potential errors)
+
+#### `max_age` (default: 30)
+Frames to keep track alive without detections
+- **15**: Drop tracks quickly
+- **30**: Balanced 
+- **50**: Maintain through occlusions
+
+#### `n_init` (default: 3)
+Frames needed to confirm new track
+- **2**: Fast initialization
+- **3**: Balanced 
+- **5**: Very stable
+
+#### `embedder` (default: "mobilenet")
+Feature extraction model
+- **"mobilenet"**: Fast, good quality 
+- **"torchreid"**: Better quality, 2x slower
+- **"clip"**: Best quality, 3x slower
+
+### Minimum track length (line 115, default: 3)
+```
+valid_tracks = track_lengths[track_lengths >= 3].index  # Change number
+```
+
+## DeepSORT vs ByteTrack
+
+| | ByteTrack | DeepSORT |
+|-|-----------|----------|
+| **Speed** | Very fast | Moderate |
+| **Basis** | Position only | Appearance + position |
+| **ID switches** | More common | Fewer |
+
+---
+
 ## Grounding DINO Classifier (this did not work well)
 
 #### **Setup**
