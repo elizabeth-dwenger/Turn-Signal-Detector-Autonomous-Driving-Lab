@@ -128,7 +128,7 @@ def analyze_sequence_computational(image_paths: List[str], fps: float = 5.0) -> 
     
     # Minimum activity threshold
     max_activity = max(left_activity, right_activity)
-    if max_activity < 6200:  # Tune this threshold
+    if max_activity < 6200:  # Tuned this threshold (over-tuned?)
         return {'predicted_signal': 'none', 'periodic_analysis': periodic_result}
     
     # Determine signal type
@@ -224,7 +224,6 @@ def label_with_api_grid(image_paths: List[str],
     
     base64_grid = encode_pil_to_base64(grid)
     
-    # Build prompt
     prompt = f"""Analyze this grid of {len(image_paths)} sequential car images (left-to-right, top-to-bottom).
 
 Task: Determine turn signal status:
