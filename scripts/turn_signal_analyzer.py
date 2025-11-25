@@ -10,13 +10,6 @@ from io import BytesIO
 from typing import List, Dict, Tuple, Optional
 from scipy.fft import fft, fftfreq
 import time
-from dotenv import load_dotenv
-from openai import OpenAI
-
-# Load environment
-load_dotenv()
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-
 
 # COMPUTATIONAL ANALYSIS
 
@@ -26,7 +19,7 @@ def isolate_yellow_channel(image: np.ndarray) -> np.ndarray:
     return mask
 
 
-def extract_yellow_intensity_series(image_paths: List[str], 
+def extract_yellow_intensity_series(image_paths: List[str],
                                     roi: Optional[Tuple[int, int, int, int]] = None) -> np.ndarray:
     intensities = []
     
@@ -99,7 +92,7 @@ def detect_rear_lamp_roi(image: np.ndarray, side: str) -> Tuple[int, int, int, i
     return (x1, y1, x2, y2)
 
 
-def analyze_sequence_computational(image_paths: List[str], fps: float = 5.0) -> dict:    
+def analyze_sequence_computational(image_paths: List[str], fps: float = 5.0) -> dict:
     # Overall yellow intensity
     intensities = extract_yellow_intensity_series(image_paths)
     periodic_result = detect_periodic_signal(intensities, fps)
@@ -148,148 +141,6 @@ def analyze_sequence_computational(image_paths: List[str], fps: float = 5.0) -> 
         'right_activity': float(right_activity)
     }
 
-# ------------------------------------------------------------------
-# API HELPERS
-
-def encode_image_to_base64(image_path: str) -> str:
-    with open(image_path, "rb") as f:
-        return base64.b64encode(f.read()).decode('utf-8')
-
-
-def encode_pil_to_base64(image: Image.Image) -> str:
-    buffer = BytesIO()
-    image.save(buffer, format="JPEG")
-    return base64.b64encode(buffer.getvalue()).decode('utf-8')
-
-
-def create_image_grid(image_paths: List[str], max_cols: int = 5) -> Image.Image:
-    images = [Image.open(path).convert('RGB') for path in image_paths]
-    
-    img_width, img_height = images[0].size
-    n_images = len(images)
-    n_cols = min(max_cols, n_images)
-    n_rows = (n_images + n_cols - 1) // n_cols
-    
-    grid = Image.new('RGB', (n_cols * img_width, n_rows * img_height), 'white')
-    
-    for idx, img in enumerate(images):
-        row, col = idx // n_cols, idx % n_cols
-        grid.paste(img, (col * img_width, row * img_height))
-    
-    return grid
-
-
-def create_annotated_grid(image_paths: List[str], 
-                         computational_result: dict,
-                         max_cols: int = 4) -> Image.Image:
-    grid = create_image_grid(image_paths, max_cols)
-    draw = ImageDraw.Draw(grid)
-    
-    # Add text annotation
-    text = f"Computational Analysis:\n"
-    text += f"Predicted: {computational_result.get('predicted_signal', 'unknown')}\n"
-    
-    if 'periodic_analysis' in computational_result:
-        pa = computational_result['periodic_analysis']
-        text += f"Periodic: {pa.get('is_periodic', False)}\n"
-        text += f"Frequency: {pa.get('peak_frequency', 0):.2f} Hz\n"
-    
-    # Draw text box
-    try:
-        font = ImageFont.truetype("/Users/elizabethdwenger/Desktop/2025Projects/Fonts_GT_Super/Desktop/GT-Eesti/GT-Eesti-Display-Light-Trial.otf", 20)
-    except:
-        font = ImageFont.load_default()
-    
-    draw.text((10, 10), text, fill='yellow', font=font, stroke_width=2, stroke_fill='black')
-    
-    return grid
-
-
-# API LABELING METHODS
-
-def label_with_api_grid(image_paths: List[str], 
-                       model: str = "gpt-4o-mini",
-                       use_computational_hint: bool = True) -> Dict:
-    
-    # Get computational analysis if requested
-    comp_result = None
-    if use_computational_hint:
-        comp_result = analyze_sequence_computational(image_paths)
-    
-    # Create grid
-    if use_computational_hint and comp_result:
-        grid = create_annotated_grid(image_paths, comp_result)
-    else:
-        grid = create_image_grid(image_paths)
-    
-    base64_grid = encode_pil_to_base64(grid)
-    
-    prompt = f"""Analyze this grid of {len(image_paths)} sequential car images (left-to-right, top-to-bottom).
-
-Task: Determine turn signal status:
-- "left": Left turn signal blinking
-- "right": Right turn signal blinking  
-- "hazard": Both signals blinking
-- "none": No turn signals active
-
-Key points:
-- Turn signals BLINK (on/off pattern across frames)
-- Look for amber/orange lights
-- Hazard = both sides blink together
-"""
-    
-    if use_computational_hint and comp_result:
-        prompt += f"""
-
-COMPUTATIONAL ANALYSIS (use as guide):
-- Predicted: {comp_result.get('predicted_signal')}
-- Periodic detected: {comp_result.get('periodic_analysis', {}).get('is_periodic', False)}
-
-Use your visual analysis to verify or correct this prediction.
-"""
-    
-    prompt += """
-Respond with JSON only:
-{
-  "label": "left"|"right"|"hazard"|"none",
-  "reasoning": "brief explanation",
-}"""
-    
-    try:
-        response = client.chat.completions.create(
-            model=model,
-            response_format={"type": "json_object"},
-            messages=[{
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": f"data:image/jpeg;base64,{base64_grid}",
-                            "detail": "high"
-                        }
-                    }
-                ]
-            }],
-            max_tokens=500,
-            temperature=0.1
-        )
-        
-        result = json.loads(response.choices[0].message.content)
-        result['method'] = 'api_grid'
-        result['used_computational_hint'] = use_computational_hint
-        
-        if comp_result:
-            result['computational_prediction'] = comp_result.get('predicted_signal')
-            result['agrees_with_computational'] = (
-                result['label'] == comp_result.get('predicted_signal')
-            )
-        
-        return result
-        
-    except Exception as e:
-        return {'label': 'error', 'error': str(e), 'method': 'api_grid'}
 
 
 # BATCH PROCESSING
@@ -370,7 +221,7 @@ def process_all_sequences(
     return pd.DataFrame(results)
 
 
-def evaluate_results(results_df: pd.DataFrame) -> Dict:    
+def evaluate_results(results_df: pd.DataFrame) -> Dict:
     def get_prediction(row):
         result = row.get('result', {})
         if isinstance(result, dict):
@@ -392,3 +243,4 @@ def evaluate_results(results_df: pd.DataFrame) -> Dict:
         'total': len(results_df),
         'confusion_matrix': pd.crosstab(true_labels, predictions).to_dict()
     }
+

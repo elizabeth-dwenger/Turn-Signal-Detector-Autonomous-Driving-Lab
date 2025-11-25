@@ -62,8 +62,8 @@ def compute_frame_differences(image_paths: List[str]) -> Tuple[List[np.ndarray],
     return diff_images, np.array(diff_magnitudes)
 
 def isolate_yellow_channel(image: np.ndarray, 
-                           lower_hsv: Tuple[int, int, int] = (15, 100, 100),
-                           upper_hsv: Tuple[int, int, int] = (35, 255, 255)) -> np.ndarray:
+                           lower_hsv: Tuple[int, int, int] = (25, 35, 50),
+                           upper_hsv: Tuple[int, int, int] = (60, 255, 255)) -> np.ndarray:
     """
     Isolate yellow/amber regions (turn signal color).
     """
@@ -246,12 +246,12 @@ def create_enhanced_sequence(image_paths: List[str],
     return enhanced_images
 
 
-def visualize_enhancement_comparison(image_paths: List[str], figsize=(18, 12)):
+def visualize_enhancement_comparison(image_paths: List[str], figsize=(18, 6)):
     """Compare original vs enhanced images side by side."""
     n_samples = min(6, len(image_paths))
     indices = np.linspace(0, len(image_paths)-1, n_samples, dtype=int)
     
-    fig, axes = plt.subplots(3, n_samples, figsize=figsize)
+    fig, axes = plt.subplots(2, n_samples, figsize=figsize)
     
     for col, idx in enumerate(indices):
         # Original
@@ -263,21 +263,21 @@ def visualize_enhancement_comparison(image_paths: List[str], figsize=(18, 12)):
         
         # Enhanced
         img_enhanced = enhance_image(img_orig, gamma=2.0)
-        axes[1, col].imshow(img_enhanced)
-        axes[1, col].set_title(f'Enhanced {idx}', fontsize=9)
-        axes[1, col].axis('off')
+        # axes[1, col].imshow(img_enhanced)
+        # axes[1, col].set_title(f'Enhanced {idx}', fontsize=9)
+        # axes[1, col].axis('off')
         
         # Yellow isolation
         yellow_mask = isolate_yellow_channel(img_enhanced)
-        axes[2, col].imshow(yellow_mask, cmap='hot')
-        axes[2, col].set_title(f'Yellow Only {idx}', fontsize=9)
-        axes[2, col].axis('off')
+        axes[1, col].imshow(yellow_mask, cmap='hot')
+        axes[1, col].set_title(f'Yellow Only {idx}', fontsize=9)
+        axes[1, col].axis('off')
     
     axes[0, 0].text(-0.3, 0.5, 'Original', transform=axes[0, 0].transAxes,
                    fontsize=12, fontweight='bold', va='center', rotation=90)
-    axes[1, 0].text(-0.3, 0.5, 'Enhanced', transform=axes[1, 0].transAxes,
-                   fontsize=12, fontweight='bold', va='center', rotation=90)
-    axes[2, 0].text(-0.3, 0.5, 'Yellow\nIsolation', transform=axes[2, 0].transAxes,
+    # axes[1, 0].text(-0.3, 0.5, 'Enhanced', transform=axes[1, 0].transAxes,
+    #                fontsize=12, fontweight='bold', va='center', rotation=90)
+    axes[1, 0].text(-0.3, 0.5, 'Yellow\nIsolation', transform=axes[1, 0].transAxes,
                    fontsize=12, fontweight='bold', va='center', rotation=90)
     
     plt.tight_layout()
