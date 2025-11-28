@@ -9,6 +9,11 @@ from matplotlib.widgets import Button
 from PIL import Image
 import argparse
 import sys
+from ipywidgets import (
+    HBox, VBox, Button, Dropdown, Output, IntText, Label
+)
+from IPython.display import display, clear_output
+
 
 from turn_signal_analyzer import analyze_sequence_computational
 
@@ -309,7 +314,7 @@ def process_all_tracks(tracks_csv: str,
     
     # Process sequences
     all_results = []
-    sequences = df.groupby('sequence')
+    sequences = df.groupby('sequence_id')
     
     if max_sequences:
         sequences = list(sequences)[:max_sequences]
@@ -358,7 +363,7 @@ def process_all_tracks(tracks_csv: str,
     
     # Label distribution
     print("\nLabel distribution (by sequence):")
-    label_counts = final_df.groupby('predicted_label')['sequence'].nunique()
+    label_counts = final_df.groupby('predicted_label')['sequence_id'].nunique()
     for label, count in label_counts.items():
         pct = count / processed * 100
         print(f"  {label:8s}: {count:5,} sequences ({pct:5.1f}%)")
@@ -376,7 +381,7 @@ class InteractiveReviewer:
         
         # Get unique sequences with their sampled frames
         self.sequences = []
-        for seq_id, group in self.df.groupby('sequence'):
+        for seq_id, group in self.df.groupby('sequence_id'):
             # Get sampled frames (indices [0, 4, 8, 12])
             sampled = group[group['sampled_frame_id'] >= 0].sort_values('frame_id')
             
@@ -452,7 +457,7 @@ class InteractiveReviewer:
         end = min(start + 4, len(all_sampled))
         frames_to_show = all_sampled.iloc[start:end]
         
-        print(f"\n[{self.current_idx + 1}/{len(self.sequences)}] Sequence: {seq['sequence']}")
+        print(f"\n[{self.current_idx + 1}/{len(self.sequences)}] Sequence: {seq['sequence_id']}")
         print(f"Current label: {seq['label'].upper()}")
         print(f"Showing frames {start}-{end-1} of {len(all_sampled)} sampled frames")
         
@@ -607,7 +612,7 @@ class InteractiveReviewer:
         if new_label in label_map:
             new_label_full = label_map[new_label]
             seq['label'] = new_label_full
-            self.corrections[seq['sequence']] = new_label_full
+            self.corrections[seq['sequence_id']] = new_label_full
             print(f"Changed to: {new_label_full}")
             
             # Update figure title
@@ -652,6 +657,10 @@ class InteractiveReviewer:
             json.dump(corrections_log, f, indent=2)
         
         print(f"Corrections log: {log_path}")
+
+
+
+
 
 
 # ============================================================================
