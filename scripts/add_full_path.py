@@ -1,8 +1,8 @@
 import csv
 
-LIST_FILE = "/gpfs/helios/home/dwenger/back_of_car_filtered.txt"
-INPUT_CSV = "/gpfs/helios/home/dwenger/detections.csv"
-OUTPUT_CSV = "/gpfs/helios/home/dwenger/detections_with_crop_path.csv"
+LIST_FILE = "/gpfs/helios/home/dwenger/front_of_car_filtered.txt"
+INPUT_CSV = "/gpfs/helios/home/dwenger/front_detections.csv"
+OUTPUT_CSV = "/gpfs/helios/home/dwenger/front_detections_with_crop_path.csv"
 
 def add_crop_paths():
     """Add crop_path column by matching rows in order."""

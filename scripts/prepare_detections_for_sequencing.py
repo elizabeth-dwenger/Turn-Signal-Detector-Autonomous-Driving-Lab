@@ -4,9 +4,9 @@ from PIL import Image
 from datetime import datetime
 import traceback
 
-LIST_FILE = "/gpfs/helios/home/dwenger/back_of_car_filtered.txt"
-OUT_CSV = "/gpfs/helios/home/dwenger/detections.csv"
-CHECKPOINT_DIR = "/gpfs/helios/home/dwenger/csv_checkpoints"
+LIST_FILE = "/gpfs/helios/home/dwenger/front_of_car_filtered.txt"
+OUT_CSV = "/gpfs/helios/home/dwenger/front_detections.csv"
+CHECKPOINT_DIR = "/gpfs/helios/home/dwenger/front_csv_checkpoints"
 os.makedirs(CHECKPOINT_DIR, exist_ok=True)
 #LIST_FILE = "/gpfs/helios/home/dwenger/test_subset.txt"
 #OUT_CSV   = "/gpfs/helios/home/dwenger/detections_test.csv"

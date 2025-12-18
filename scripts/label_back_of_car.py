@@ -3,7 +3,7 @@ import json
 import subprocess
 import platform
 
-OUTPUT_FILE = "back_of_car_labels.txt"
+OUTPUT_FILE = "front_of_car_labels.txt"
 
 def open_image(image_path):
     try:
@@ -15,6 +15,15 @@ def open_image(image_path):
             subprocess.run(["xdg-open", image_path], check=True)
     except Exception as e:
         print(f"Could not open image: {e}")
+
+def refocus_terminal_mac():
+    try:
+        subprocess.run(
+            ["osascript", "-e", 'tell application "Terminal" to activate'],
+            check=True
+        )
+    except Exception as e:
+        print(f"Could not refocus Terminal: {e}")
 
 def get_image_paths(base_dir):
     image_paths = []
@@ -58,8 +67,9 @@ def interactive_labeling(image_base_dir):
         img_path = os.path.join(image_base_dir, img_rel)
         print(f"\nImage {i+1}/{len(image_paths)}: {img_rel}")
         open_image(img_path)
+        refocus_terminal_mac()
 
-        user_input = input("Label as back_of_car? [1=yes / 0=no / u=undo / q=quit]: ").strip().lower()
+        user_input = input("Label as front_of_car? [1=yes / 0=no / u=undo / q=quit]: ").strip().lower()
         if user_input == "q":
             print("Exiting early. Progress saved.")
             break
@@ -81,5 +91,5 @@ def interactive_labeling(image_base_dir):
     print(f"\nAll done! {len(labels)} images labeled and saved in {OUTPUT_FILE}.")
 
 if __name__ == "__main__":
-    interactive_labeling("front_back_images")
+    interactive_labeling("front_car_images")
 

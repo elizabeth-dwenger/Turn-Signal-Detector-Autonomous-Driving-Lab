@@ -4,7 +4,7 @@ paths may be relative to --img-root or absolute.
 saves best model to --save-dir/best_model.pth
 
  example run:
-caffeinate python scripts/train_front_back.py \
+caffeinate python scripts/train_binary.py \
   --train-file train_front_back.txt \
   --val-file val_front_back.txt \
   --img-root front_back_images \
