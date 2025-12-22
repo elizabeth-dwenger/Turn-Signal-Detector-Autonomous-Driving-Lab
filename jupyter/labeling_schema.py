@@ -1,4 +1,5 @@
 TURN_SIGNAL_LABELS = ["left", "right", "none", "both"]
+# TURN_SIGNAL_LABELS = ["left", "right", "none", "hazard"] # Updated!
 #TAIL_LIGHT_LABELS = ["on", "off", "not_visible"]
 
 # Mappings
