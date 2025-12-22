@@ -1,3 +1,4 @@
+# Base GroundingDINO didn't work at all for this
 import os, json, sys
 from tqdm import tqdm
 import torch

@@ -111,7 +111,7 @@ def main():
     # Apply size consistency filter
     tracks_df = filter_tracks_by_size_consistency(tracks_df, size_tolerance=0.3)
     
-    # Remove very short tracks (likely noise)
+    # Remove very short tracks
     track_lengths = tracks_df.groupby(['sequence', 'track_id']).size()
     valid_tracks = track_lengths[track_lengths >= 3].index  # At least 3 frames
     tracks_df = tracks_df.set_index(['sequence', 'track_id']).loc[valid_tracks].reset_index()

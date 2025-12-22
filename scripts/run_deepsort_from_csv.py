@@ -8,8 +8,8 @@ import torch
 # pip install deep-sort-realtime
 from deep_sort_realtime.deepsort_tracker import DeepSort
 
-DET_CSV   = "/gpfs/helios/home/dwenger/detections_with_crop_path.csv"
-TRACK_OUT = "/gpfs/helios/home/dwenger/tracks_deepsort.csv"
+DET_CSV   = "/gpfs/helios/home/dwenger/front_detections_with_crop_path.csv"
+TRACK_OUT = "/gpfs/helios/home/dwenger/front_tracks_deepsort.csv"
 
 # Check GPU availability
 print(f"PyTorch version: {torch.__version__}")
@@ -19,153 +19,261 @@ if torch.cuda.is_available():
     print(f"CUDA version: {torch.version.cuda}")
 
 def load_frame_cache(img_path, cache={}):
-    # load frame with caching to avoid reading same frame multiple times
+    """Load frame with caching to avoid reading same frame multiple times"""
     if img_path not in cache:
-        cache[img_path] = cv2.imread(img_path)
-        if cache[img_path] is None:
+        img = cv2.imread(img_path)
+        if img is None:
             raise FileNotFoundError(f"Could not load image: {img_path}")
+        cache[img_path] = img
     return cache[img_path]
 
-def df_to_deepsort_detections(df_frame, frame_img):
-    # Convert DataFrame detections to DeepSORT format
-    # DeepSORT expects: ([x1, y1, w, h], confidence, class_id)
+def df_to_deepsort_detections(df_frame):
+    """
+    Convert DataFrame detections to DeepSORT format
+    Returns detections list and mapping to original dataframe indices
+    """
     detections = []
-    for _, row in df_frame.iterrows():
-        x1, y1, x2, y2 = int(row['x1']), int(row['y1']), int(row['x2']), int(row['y2'])
+    det_indices = []
+    
+    for idx, row in df_frame.iterrows():
+        # Keep coordinates as floats for precision
+        x1, y1, x2, y2 = float(row['x1']), float(row['y1']), float(row['x2']), float(row['y2'])
         w = x2 - x1
         h = y2 - y1
+        
+        # Skip invalid boxes
+        if w <= 0 or h <= 0:
+            continue
+            
         conf = float(row['score'])
         class_id = int(row['class_id'])
         
         # DeepSORT format: ([left, top, width, height], confidence, detection_class)
         detections.append(([x1, y1, w, h], conf, class_id))
+        det_indices.append(idx)
     
-    return detections
+    return detections, det_indices
+
+def calculate_iou(box1, box2):
+    """Calculate IoU between two boxes [x1, y1, x2, y2]"""
+    x1_1, y1_1, x2_1, y2_1 = box1
+    x1_2, y1_2, x2_2, y2_2 = box2
+    
+    xi1 = max(x1_1, x1_2)
+    yi1 = max(y1_1, y1_2)
+    xi2 = min(x2_1, x2_2)
+    yi2 = min(y2_1, y2_2)
+    
+    inter_area = max(0, xi2 - xi1) * max(0, yi2 - yi1)
+    box1_area = (x2_1 - x1_1) * (y2_1 - y1_1)
+    box2_area = (x2_2 - x1_2) * (y2_2 - y1_2)
+    union_area = box1_area + box2_area - inter_area
+    
+    return inter_area / union_area if union_area > 0 else 0
 
 def main():
     df = pd.read_csv(DET_CSV)
+    print(f"Loaded {len(df)} detections from {DET_CSV}")
+    
+    # Use correct column name
+    sequence_col = 'sequence' if 'sequence' in df.columns else 'sequence_id'
+    print(f"Using sequence column: '{sequence_col}'")
+    
     df["frame_id_int"] = df["frame_id"].astype(int)
-    df = df.sort_values(["sequence", "frame_id_int"]).reset_index(drop=True)
+    df = df.sort_values([sequence_col, "frame_id_int"]).reset_index(drop=True)
     
-    all_tracks = []
+    # Initialize tracking columns
+    df["track_id"] = -1
+    df["track_confidence"] = 0.0
     
-    for seq, df_seq in df.groupby("sequence"):
+    # Track global sequence counter for composite IDs
+    sequence_counter = {}
+    
+    for seq, df_seq in df.groupby(sequence_col):
         print(f"\nProcessing sequence: {seq}")
+        print(f"  Detections: {len(df_seq)}")
+        print(f"  Frames: {df_seq['frame_id_int'].nunique()}")
+        print(f"  Frame range: {df_seq['frame_id_int'].min()} - {df_seq['frame_id_int'].max()}")
         
-        # DeepSORT tracker with GPU support
+        # Initialize DeepSORT tracker
         print(f"  Initializing DeepSORT tracker...")
-        tracker = DeepSort(
-            max_age=30,                    # Frames to keep track alive without updates
-            n_init=3,                      # Frames needed to confirm a track
-            nms_max_overlap=0.7,           # NMS IoU threshold
-            max_cosine_distance=0.3,       # Appearance similarity (lower = stricter)
-            nn_budget=100,                 # Max samples per class for appearance
-            embedder="mobilenet",          # Feature extractor: 'mobilenet', 'torchreid', or 'clip'
-            half=True,                     # Use FP16 for speed (requires GPU)
-            embedder_gpu=True,             # Use GPU for feature extraction
-            embedder_model_name=None,      # Use default model
-            embedder_wts=None,             # Use default weights
-            polygon=False,
-            today=None
-        )
-        print(f"DeepSORT initialized with GPU support")
+        try:
+            tracker = DeepSort(
+                max_age=30,                    # Frames to keep track alive without updates
+                n_init=3,                      # Frames needed to confirm a track
+                nms_max_overlap=0.7,           # NMS IoU threshold
+                max_cosine_distance=0.3,       # Appearance similarity (lower = stricter)
+                nn_budget=100,                 # Max samples per class for appearance
+                embedder="mobilenet",          # Feature extractor
+                half=torch.cuda.is_available(),  # Use FP16 only if GPU available
+                embedder_gpu=torch.cuda.is_available(),
+                embedder_model_name=None,
+                embedder_wts=None,
+                polygon=False,
+                today=None
+            )
+            print(f"  ✓ DeepSORT initialized {'with GPU' if torch.cuda.is_available() else 'on CPU'}")
+        except Exception as e:
+            print(f"  ⚠ Error initializing DeepSORT: {e}")
+            print(f"  Trying without half precision...")
+            tracker = DeepSort(
+                max_age=30,
+                n_init=3,
+                nms_max_overlap=0.7,
+                max_cosine_distance=0.3,
+                nn_budget=100,
+                embedder="mobilenet",
+                half=False,
+                embedder_gpu=torch.cuda.is_available(),
+                polygon=False
+            )
         
         frame_cache = {}
+        frame_count = 0
         
-        for frame_id, df_frame in tqdm(df_seq.groupby("frame_id_int"),
-                                       desc=f"Frames in {seq}"):
+        # Process frames in order
+        sorted_frames = sorted(df_seq['frame_id_int'].unique())
+        
+        for frame_id in tqdm(sorted_frames, desc=f"  Tracking"):
+            frame_count += 1
+            df_frame = df_seq[df_seq['frame_id_int'] == frame_id]
+            
             # Load the full frame image
-            img_path = df_frame.iloc[0]["img_path"]
+            img_path = df_frame.iloc[0]["frame_path"]
             
             try:
                 frame = load_frame_cache(img_path, frame_cache)
             except FileNotFoundError as e:
-                print(f"[WARN] {e}")
+                print(f"\n[WARN] {e}")
                 continue
             
-            # convert detections to DeepSORT format
-            detections = df_to_deepsort_detections(df_frame, frame)
+            # Convert detections to DeepSORT format
+            detections, det_indices = df_to_deepsort_detections(df_frame)
             
-            # update tracker (DeepSORT extracts appearance features internally)
+            if len(detections) == 0:
+                # Still update tracker with empty detections to age out old tracks
+                tracker.update_tracks([], frame=frame)
+                continue
+            
+            # Update tracker
             tracks = tracker.update_tracks(detections, frame=frame)
             
-            # match tracks back to original detections
-            width = int(df_frame.iloc[0]["width"])
-            height = int(df_frame.iloc[0]["height"])
+            # Match tracks back to detections
+            confirmed_tracks = [t for t in tracks if t.is_confirmed()]
             
-            # DeepSORT returns tracks with track_id
-            for track in tracks:
-                if not track.is_confirmed():
-                    continue  # Skip unconfirmed tracks
+            for det_idx, orig_idx in enumerate(det_indices):
+                row = df.loc[orig_idx]
+                det_box = [row['x1'], row['y1'], row['x2'], row['y2']]
                 
-                track_id = track.track_id
-                ltrb = track.to_ltrb()  # get bounding box [left, top, right, bottom]
-                x1, y1, x2, y2 = map(int, ltrb)
-                
-                # find matching detection in original df_frame by IoU
-                best_match_idx = None
+                # Find best matching track
+                best_track_id = -1
                 best_iou = 0
                 
-                for idx, row in df_frame.iterrows():
-                    # calculate IoU
-                    det_x1, det_y1, det_x2, det_y2 = row['x1'], row['y1'], row['x2'], row['y2']
+                for track in confirmed_tracks:
+                    ltrb = track.to_ltrb()
+                    track_box = [ltrb[0], ltrb[1], ltrb[2], ltrb[3]]
                     
-                    xi1 = max(x1, det_x1)
-                    yi1 = max(y1, det_y1)
-                    xi2 = min(x2, det_x2)
-                    yi2 = min(y2, det_y2)
-                    
-                    inter_area = max(0, xi2 - xi1) * max(0, yi2 - yi1)
-                    box1_area = (x2 - x1) * (y2 - y1)
-                    box2_area = (det_x2 - det_x1) * (det_y2 - det_y1)
-                    union_area = box1_area + box2_area - inter_area
-                    
-                    iou = inter_area / union_area if union_area > 0 else 0
+                    iou = calculate_iou(track_box, det_box)
                     
                     if iou > best_iou:
                         best_iou = iou
-                        best_match_idx = idx
+                        best_track_id = track.track_id
                 
-                if best_match_idx is None or best_iou < 0.5:
-                    continue  # no good match found
-                
-                # get original detection info
-                matched_row = df_frame.loc[best_match_idx]
-                
-                all_tracks.append({
-                    "sequence": seq,
-                    "frame_id": matched_row["frame_id"],
-                    "track_id": track_id,
-                    "class_id": int(matched_row["class_id"]),
-                    "score": float(matched_row["score"]),
-                    "x1": x1, "y1": y1, "x2": x2, "y2": y2,
-                    "crop_path": matched_row["crop_path"],
-                    "img_path": img_path,
-                    "width": width,
-                    "height": height
-                })
+                if best_iou >= 0.8:
+                    df.at[orig_idx, "track_id"] = best_track_id
+                    df.at[orig_idx, "track_confidence"] = best_iou
             
-            # clear frame cache periodically to save memory
-            if len(frame_cache) > 50:
+            # Clear frame cache more aggressively for long sequences
+            if frame_count % 20 == 0:
                 frame_cache.clear()
+        
+        # Clear cache after each sequence
+        frame_cache.clear()
+        
+        # Statistics for this sequence
+        seq_tracked = df_seq[df['track_id'] != -1]
+        if len(seq_tracked) > 0:
+            n_tracks = seq_tracked['track_id'].nunique()
+            print(f"  ✓ Assigned {len(seq_tracked)}/{len(df_seq)} detections to {n_tracks} tracks")
     
-    tracks_df = pd.DataFrame(all_tracks)
+    # Assignment results
+    print(f"\n{'='*60}")
+    print(f"TRACKING RESULTS")
+    print(f"{'='*60}")
+    print(f"Total detections: {len(df):,}")
+    print(f"Assigned to tracks: {(df['track_id'] != -1).sum():,}")
+    print(f"Unassigned: {(df['track_id'] == -1).sum():,}")
+    print(f"Assignment rate: {(df['track_id'] != -1).sum()/len(df)*100:.1f}%")
     
-    # filter very short tracks
-    track_lengths = tracks_df.groupby(['sequence', 'track_id']).size()
-    valid_tracks = track_lengths[track_lengths >= 3].index
-    tracks_df = tracks_df.set_index(['sequence', 'track_id']).loc[valid_tracks].reset_index()
+    # Keep only successfully tracked detections
+    tracked_df = df[df['track_id'] != -1].copy()
     
-    tracks_df.to_csv(TRACK_OUT, index=False)
-    print(f"\n[DONE] wrote {len(tracks_df)} rows -> {TRACK_OUT}")
+    # Create composite sequence_id from sequence + track_id
+    # This ensures each track is globally unique
+    print(f"\n{'='*60}")
+    print(f"CREATING COMPOSITE TRACK IDs")
+    print(f"{'='*60}")
     
-    # Print statistics
-    final_track_lengths = tracks_df.groupby(['sequence', 'track_id']).size()
-    print(f"\nTrack statistics:")
-    print(f"Total tracks: {len(final_track_lengths)}")
-    print(f"Mean length: {final_track_lengths.mean():.1f} frames")
-    print(f"Median length: {final_track_lengths.median():.1f} frames")
-    print(f"Max length: {final_track_lengths.max()} frames")
+    tracked_df['original_track_id'] = tracked_df['track_id']
+    
+    # Create unique sequence_id for each (sequence, track_id) pair
+    composite_ids = []
+    for _, row in tracked_df.iterrows():
+        seq = row[sequence_col]
+        track = row['track_id']
+        composite_id = f"{seq}__track_{track}"
+        composite_ids.append(composite_id)
+    
+    tracked_df['sequence_id'] = composite_ids
+    
+    print(f"Original sequences: {tracked_df[sequence_col].nunique()}")
+    print(f"Original tracks: {tracked_df['original_track_id'].nunique()}")
+    print(f"Composite sequence_ids: {tracked_df['sequence_id'].nunique()}")
+    
+    # Filter out tracks that are too short (likely noise)
+    print(f"\n{'='*60}")
+    print(f"FILTERING SHORT TRACKS")
+    print(f"{'='*60}")
+    
+    track_lengths = tracked_df.groupby('sequence_id').size()
+    print(f"Track length distribution:")
+    print(f"  Min: {track_lengths.min()}")
+    print(f"  Max: {track_lengths.max()}")
+    print(f"  Mean: {track_lengths.mean():.1f}")
+    print(f"  Median: {track_lengths.median():.1f}")
+    
+    min_track_length = 3
+    valid_tracks = track_lengths[track_lengths >= min_track_length].index
+    tracked_df = tracked_df[tracked_df['sequence_id'].isin(valid_tracks)].copy()
+    
+    print(f"\nAfter filtering tracks < {min_track_length} frames:")
+    print(f"  Remaining detections: {len(tracked_df):,}")
+    print(f"  Remaining tracks: {tracked_df['sequence_id'].nunique():,}")
+    
+    # Save results
+    tracked_df.to_csv(TRACK_OUT, index=False)
+    print(f"\n{'='*60}")
+    print(f"✓ Wrote {len(tracked_df):,} rows -> {TRACK_OUT}")
+    print(f"{'='*60}")
+    
+    # Final statistics
+    if len(tracked_df) > 0:
+        final_track_lengths = tracked_df.groupby('sequence_id').size()
+        
+        print(f"\nFINAL TRACK STATISTICS:")
+        print(f"  Total unique tracks: {len(final_track_lengths):,}")
+        print(f"  Mean frames per track: {final_track_lengths.mean():.1f}")
+        print(f"  Median frames per track: {final_track_lengths.median():.1f}")
+        print(f"  Longest track: {final_track_lengths.max():,} frames")
+        print(f"  Shortest track: {final_track_lengths.min():,} frames")
+        print(f"  Mean track confidence (IoU): {tracked_df['track_confidence'].mean():.3f}")
+        
+        # Show sample of longest tracks
+        print(f"\nTop 5 longest tracks:")
+        for i, (seq_id, length) in enumerate(final_track_lengths.nlargest(5).items(), 1):
+            print(f"  {i}. {seq_id[:80]:80s} : {length:,} frames")
+    else:
+        print("\n[WARNING] No tracks produced after filtering!")
 
 if __name__ == "__main__":
     main()

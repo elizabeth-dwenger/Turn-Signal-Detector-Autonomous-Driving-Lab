@@ -146,7 +146,7 @@ def process_all_sequences(
     sample_every_n: int = 4
 ) -> pd.DataFrame:
     """
-    Process sequences in blocks of size `sample_every_n` using computational method.
+    Process sequences in blocks of size sample_every_n using computational method.
     Each block can have its own true label.
     """
     

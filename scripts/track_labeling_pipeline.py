@@ -34,11 +34,11 @@ class Config:
     IMAGE_BASE_PATH = '/gpfs/space/projects/ml2024'
     OUTPUT_DIR = 'labeled_dataset'
     
-    # ResNet integration - START SEQUENCES AT FIRST LIGHT
+    # ResNet integration - this wasn't used in the end
     USE_RESNET_FILTERING = False  # Set True to trim sequences to start at first light
     RESNET_WINDOW_FRAMES = 200  # Extended window around ResNet detections
     
-    # Advanced: Dynamic window sizing based on detection pattern
+    # Dynamic window sizing based on detection pattern
     USE_DYNAMIC_WINDOW = False  # Adjust window based on blink frequency
     MIN_WINDOW_SIZE = 12
     MAX_WINDOW_SIZE = 32
@@ -76,7 +76,7 @@ def find_resnet_windows(sequence_df: pd.DataFrame,
                        resnet_predictions: Set[str],
                        window_size: int = 12) -> List[Tuple[int, int]]:
     """
-    Find windows around ResNet detections for focused analysis.
+    Find windows around ResNet detections for focused analysis (was not used)
     """
     # Normalize crop_path to match ResNet format
     def normalize_path(crop_path):
@@ -424,7 +424,7 @@ class InteractiveReviewer:
         while self.current_idx < len(self.sequences):
             self.show_sequence()
             
-            action = input("\nAction [ENTER/x/c/s/b/f/q]: ").strip().lower()
+            action = input("\nAction [ENTER/x/c/s/b/f/q]: ").strip().lower() # this didn't work in jupyter lol
             
             if action == 'q':
                 break

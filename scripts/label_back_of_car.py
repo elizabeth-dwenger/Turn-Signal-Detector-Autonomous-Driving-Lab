@@ -7,7 +7,7 @@ OUTPUT_FILE = "front_of_car_labels.txt"
 
 def open_image(image_path):
     try:
-        if platform.system() == "Darwin":  # macOS
+        if platform.system() == "Darwin":  # macOS focus on terminal
             subprocess.run(["open", image_path], check=True)
         elif platform.system() == "Windows":
             os.startfile(image_path)

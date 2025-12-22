@@ -12,7 +12,7 @@ UNDO_COMMANDS = {"x", "undo"}
 
 def open_image(image_path):
     try:
-        if platform.system() == "Darwin":  # macOS
+        if platform.system() == "Darwin":  # macOS to keep terminal active after loading image
             subprocess.run(["open", image_path], check=True)
             time.sleep(0.3)
             subprocess.run(["osascript", "-e", 'tell application "Terminal" to activate'])

@@ -217,7 +217,7 @@ def main():
                         row = {
                             "sequence": sequence,
                             "frame_id": frame_id,
-                            "img_path": frame_img_path,
+                            "frame_path": frame_img_path,
                             "width": img_w,
                             "height": img_h,
                             "class_id": class_id,

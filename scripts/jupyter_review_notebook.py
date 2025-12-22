@@ -67,7 +67,7 @@ class JupyterReviewer:
         self.image_base_path = image_base_path
         self.progress = progress
         
-        # CHANGED: Map crop_path -> label (Unique identifier)
+        # Map crop_path -> label (Unique identifier)
         self.correction_labels = {}
         
         # Load existing corrections from progress
@@ -97,9 +97,9 @@ class JupyterReviewer:
         # Create widgets
         self._create_widgets()
         
-        print(f"✓ Loaded {len(self.sequences):,} sequences for review")
+        print(f"Loaded {len(self.sequences):,} sequences for review")
         if self.correction_labels:
-            print(f"✓ Loaded {len(self.correction_labels)} existing corrections")
+            print(f"Loaded {len(self.correction_labels)} existing corrections")
     
     def _create_widgets(self):
         """Create interactive widgets."""
@@ -163,7 +163,7 @@ class JupyterReviewer:
             
             current_frame_ids.append(row['frame_id'])
         
-        print(f"✓ Labeled frames {current_frame_ids} as '{new_label}'")
+        print(f"Labeled frames {current_frame_ids} as '{new_label}'")
         self._update_info()
     
     def _on_flag_change(self, change):
@@ -196,7 +196,7 @@ class JupyterReviewer:
         if self.current_idx >= len(self.sequences):
             with self.output_images:
                 clear_output(wait=True)
-                print("✓ Review complete!")
+                print("Review complete!")
             return
         
         seq = self.sequences[self.current_idx]
@@ -304,7 +304,7 @@ class JupyterReviewer:
             self.frame_offset = 0
             self.show_current_sequence()
         else:
-            print("✓ Last sequence reached!")
+            print("Last sequence reached!")
 
     def go_previous(self):
         if self.current_idx > 0:
@@ -326,7 +326,7 @@ class JupyterReviewer:
         frame_indices = all_sampled['frame_id'].values
         
         if target < frame_indices[0] or target > frame_indices[-1]:
-            print(f"⚠ Frame {target} out of range")
+            print(f"Frame {target} out of range")
             return
             
         closest_idx = np.argmin(np.abs(frame_indices - target))
@@ -341,7 +341,7 @@ class JupyterReviewer:
         3. Iterate row by row: update active label ONLY when hitting an anchor.
         """
         if not self.correction_labels:
-            print("⚠ No corrections to save")
+            print("No corrections to save")
             return
         
         print(f"Applying corrections based on {len(self.correction_labels)} unique crop paths...")
@@ -373,7 +373,7 @@ class JupyterReviewer:
                 is_sampled = row['sampled_frame_id'] >= 0
                 
                 if is_sampled:
-                    # KEY LOGIC: When we hit a sampled frame, we reset the active label
+                    # When we hit a sampled frame, we reset the active label
                     # Check if user corrected THIS specific frame
                     if crop_path in self.correction_labels:
                         current_active_label = self.correction_labels[crop_path]
@@ -394,7 +394,7 @@ class JupyterReviewer:
             output_path = f"labeled_tracks_reviewed_{timestamp}.csv"
         
         self.df.to_csv(output_path, index=False)
-        print(f"✓ Saved processed dataframe to: {output_path}")
+        print(f"Saved processed dataframe to: {output_path}")
         return output_path
 
 
@@ -430,14 +430,14 @@ def review_filtered(labeled_csv: str,
     progress = ProgressTracker(progress_file) if resume else None
     
     if progress and resume and Path(progress_file).exists():
-        print(f"🔄 Resuming from {progress_file}")
+        print(f"Resuming from {progress_file}")
         
         # Get unreviewed sequences
         all_seq_ids = df['sequence_id'].unique()
         unreviewed = progress.get_unreviewed_sequences(all_seq_ids.tolist())
         
         if len(unreviewed) == 0:
-            print("✓ All sequences already reviewed!")
+            print("All sequences already reviewed!")
             return None
         
         print(f"   {len(all_seq_ids) - len(unreviewed)} already reviewed")
