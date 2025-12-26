@@ -44,30 +44,6 @@ ADL/
 
 ---
 
-## JSON Annotations Format
-
-```json
-[
-  {
-    "image": "../data_sample/car_001.jpg",
-    "turn_signal": "left",
-    "tail_light": "on"
-  },
-  {
-    "image": "../data_sample/car_002.jpg",
-    "turn_signal": "none",
-    "tail_light": "not_visible"
-  },
-  {
-    "image": "../data_sample/car_003.jpg",
-    "turn_signal": "both",
-    "tail_light": "off"
-  }
-]
-```
-
----
-
 ### Schema Definition
 
 **Turn Signal (`turn_signal`)**
@@ -451,6 +427,35 @@ Both approaches were implemented as offline batch inference jobs that load crops
 - Temporal-context Cosmos labeling: **not working yet**
 
 At the time of writing, these experiments were exploratory only and did not produce reliable or usable labels. All final annotations therefore rely exclusively on the manual sequence review performed with `scripts/sequence_editor.py`.
+
+---
+
+# Archive
+
+---
+
+## JSON Annotations Format
+
+```json
+[
+  {
+    "image": "../data_sample/car_001.jpg",
+    "turn_signal": "left",
+    "tail_light": "on"
+  },
+  {
+    "image": "../data_sample/car_002.jpg",
+    "turn_signal": "none",
+    "tail_light": "not_visible"
+  },
+  {
+    "image": "../data_sample/car_003.jpg",
+    "turn_signal": "both",
+    "tail_light": "off"
+  }
+]
+```
+
 
 ---
 
