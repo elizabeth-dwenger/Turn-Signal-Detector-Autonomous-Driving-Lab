@@ -29,6 +29,10 @@ pip install -r requirements.txt
 ADL/
 ├── jupyter/                 # Jupyter notebooks for exploration
 ├── sampled_images/          # Locally sampled images (ignored by Git)
+├── runs/                    # Resnet output (ignored by Git)
+├── scripts/                 # Python scripts
+├── json_txt/                # Archive for JSON & txt files (ignored by Git)
+├── GroundingDINO/           # GroundingDINO testing folder (ignored by Git)
 ├── front_back_images/       # Sampled images for front/back classification
 ├── .env                     # API keys (not tracked by Git)
 ├── .gitignore
@@ -52,6 +56,9 @@ ADL/
 * `right`
 * `none`
 * `both` (hazard)
+
+### Deprecated
+
 * `unclear`
 
 **Tail Light (`tail_light`)**
@@ -401,7 +408,7 @@ Per-class accuracy:
 
 ---
 
-## Experimental: Cosmos-Based Labeling Tests (Not Working Yet)
+## Experimental: Cosmos-Based Labeling Tests
 
 In addition to manual review, I explored using NVIDIA Cosmos (`nvidia/Cosmos-Reason1-7B`) to test whether large multimodal models could assist with turn-signal labeling.
 
@@ -423,8 +430,12 @@ At a minimum, the setup involves:
 Both approaches were implemented as offline batch inference jobs that load crops from the CSV, construct multimodal prompts, and write predictions back to a CSV for later analysis.
 
 **Status / Results:**
-- Single-frame Cosmos labeling: **not working yet**
-- Temporal-context Cosmos labeling: **not working yet**
+- Temporal-context Cosmos labeling: 46%
+- right: 74%
+- none: 47%
+- left: 11%
+- hazard: 0%
+
 
 At the time of writing, these experiments were exploratory only and did not produce reliable or usable labels. All final annotations therefore rely exclusively on the manual sequence review performed with `scripts/sequence_editor.py`.
 
