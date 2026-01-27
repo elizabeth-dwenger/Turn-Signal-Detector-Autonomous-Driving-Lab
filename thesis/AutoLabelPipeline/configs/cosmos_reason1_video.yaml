@@ -1,0 +1,83 @@
+# Configuration for NVIDIA Cosmos-Reason1-7B (Video Mode)
+
+experiment:
+  name: "cosmos_reason1_video_v1"
+  output_dir: "results/cosmos_reason1_video/"
+  random_seed: 42
+  description: "NVIDIA Cosmos Reason 1 for turn signal detection - video inference mode"
+
+data:
+  input_csv: "data/tracking_data.csv"
+  crop_base_dir: "/gpfs/space/projects/ml2024/"
+  frame_base_dir: null
+  max_sequences: null
+  sequence_filter: null
+  video_fps: 10
+
+preprocessing:
+  resize_resolution: [640, 480]
+  normalize: true
+  maintain_aspect_ratio: true
+  padding_color: [0, 0, 0]
+  max_sequence_length: null  # Cosmos can handle full sequences
+  sequence_stride: 1
+
+model:
+  type: "cosmos_reason1"
+  inference_mode: "video"
+  model_name_or_path: "nvidia/Cosmos-Reason1-7B"
+  device: "cuda"
+  batch_size: 1  # Process one sequence at a time
+  max_new_tokens: 150
+  temperature: 0.0
+  top_p: 1.0
+  do_sample: false
+  prompt_template_path: "data/prompts/turn_signal_video.txt"
+  
+  # Not using API - loading from HuggingFace
+  api_key_env: null
+  api_endpoint: null
+  api_rate_limit: null
+  
+  model_kwargs:
+    trust_remote_code: true
+    torch_dtype: "float16"
+    device_map: "auto"
+    # Add any Cosmos-specific parameters here
+
+postprocessing:
+  temporal_smoothing_enabled: true
+  smoothing_method: "median"
+  smoothing_window_size: 5  # Smaller window since model already does temporal reasoning
+  confidence_threshold: 0.65
+  min_signal_duration_frames: 3
+  max_signal_duration_frames: null
+  allow_both_signals: false
+  single_image: null  # Not used in video mode
+
+quality_control:
+  flag_low_confidence: true
+  low_confidence_threshold: 0.45
+  random_sample_rate: 0.05
+  stratified_sampling: true
+  flag_both_signals: true
+  flag_rapid_changes: true
+  rapid_change_threshold: 3
+
+output:
+  formats: ["csv", "json"]
+  include_confidence: true
+  include_raw_output: true  # Save model reasoning
+  save_visualizations: true
+  visualization_sample_rate: 0.02
+  visualization_output_dir: null
+  export_review_queue: true
+  review_queue_format: "json"
+
+logging:
+  level: "INFO"
+  log_file: null
+  console_output: true
+  track_metrics: true
+  show_progress_bar: true
+  log_frequency: 10  # Log every 10 sequences

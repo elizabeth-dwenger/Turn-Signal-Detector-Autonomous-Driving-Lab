@@ -1,0 +1,54 @@
+# Base configuration - shared settings across all models
+# This file can be referenced by other configs to avoid duplication
+
+data:
+  input_csv: "data/tracking_data.csv"
+  crop_base_dir: "/gpfs/space/projects/ml2024/"
+  frame_base_dir: null
+  max_sequences: null  # Process all sequences
+  sequence_filter: null  # No filtering
+  video_fps: 10
+
+preprocessing:
+  resize_resolution: [640, 480]
+  normalize: true
+  maintain_aspect_ratio: true
+  padding_color: [0, 0, 0]
+  max_sequence_length: null  # No limit for video models
+  sequence_stride: 1  # Use all frames
+
+postprocessing:
+  temporal_smoothing_enabled: true
+  smoothing_method: "median"
+  smoothing_window_size: 7
+  confidence_threshold: 0.6
+  min_signal_duration_frames: 3
+  max_signal_duration_frames: null
+  allow_both_signals: false
+
+quality_control:
+  flag_low_confidence: true
+  low_confidence_threshold: 0.4
+  random_sample_rate: 0.05
+  stratified_sampling: true
+  flag_both_signals: true
+  flag_rapid_changes: true
+  rapid_change_threshold: 3
+
+output:
+  formats: ["csv", "json"]
+  include_confidence: true
+  include_raw_output: false
+  save_visualizations: true
+  visualization_sample_rate: 0.01
+  visualization_output_dir: null  # Auto-set to output_dir/visualizations
+  export_review_queue: true
+  review_queue_format: "json"
+
+logging:
+  level: "INFO"
+  log_file: null  # Auto-set to output_dir/pipeline.log
+  console_output: true
+  track_metrics: true
+  show_progress_bar: true
+  log_frequency: 100
