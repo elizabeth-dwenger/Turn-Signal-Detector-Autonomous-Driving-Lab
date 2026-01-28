@@ -19,13 +19,13 @@ preprocessing:
   normalize: true
   maintain_aspect_ratio: true
   padding_color: [0, 0, 0]
-  max_sequence_length: 32  # Qwen3-VL may have token limits with many images
+  max_sequence_length: 32
   sequence_stride: 1
 
 model:
   type: "qwen3_vl"
   inference_mode: "video"
-  model_name_or_path: "Qwen/Qwen3-VL"
+  model_name_or_path: "Qwen/Qwen3-VL-8B-Instruct"
   device: "cuda"
   batch_size: 1
   max_new_tokens: 100
@@ -33,7 +33,6 @@ model:
   top_p: 1.0
   do_sample: false
   prompt_template_path: "data/prompts/turn_signal_video.txt"
-  
   api_key_env: null
   api_endpoint: null
   api_rate_limit: null
@@ -41,7 +40,6 @@ model:
   model_kwargs:
     trust_remote_code: true
     torch_dtype: "bfloat16"
-    attn_implementation: "flash_attention_2"  # If available
 
 postprocessing:
   temporal_smoothing_enabled: true

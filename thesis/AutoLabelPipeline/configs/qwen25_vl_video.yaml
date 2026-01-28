@@ -1,3 +1,5 @@
+# Configuration for Qwen2.5-VL (Video Mode)
+
 experiment:
   name: "qwen25_vl_video_v1"
   output_dir: "results/qwen25_vl_video/"
@@ -23,7 +25,10 @@ preprocessing:
 model:
   type: "qwen25_vl"
   inference_mode: "video"
+  # Use local path - HuggingFace cache format
   model_name_or_path: "Qwen/Qwen2.5-VL-7B-Instruct"
+  # OR use HuggingFace identifier (will download if not cached):
+  # model_name_or_path: "Qwen/Qwen2.5-VL-7B-Instruct"
   device: "cuda"
   batch_size: 1
   max_new_tokens: 100

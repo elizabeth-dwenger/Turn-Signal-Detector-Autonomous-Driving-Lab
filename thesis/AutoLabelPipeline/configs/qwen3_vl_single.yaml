@@ -26,7 +26,10 @@ preprocessing:
 model:
   type: "qwen3_vl"
   inference_mode: "single"
-  model_name_or_path: "Qwen/Qwen3-VL"
+  # Use local path - HuggingFace cache format
+  model_name_or_path: "Qwen/Qwen3-VL-8B-Instruct"
+  # OR use HuggingFace identifier (will download if not cached):
+  # model_name_or_path: "Qwen/Qwen3-VL-8B-Instruct"
   device: "cuda"
   batch_size: 8  # Can batch multiple single images
   max_new_tokens: 100
@@ -42,7 +45,6 @@ model:
   model_kwargs:
     trust_remote_code: true
     torch_dtype: "bfloat16"
-    attn_implementation: "flash_attention_2"
 
 postprocessing:
   temporal_smoothing_enabled: true
