@@ -26,8 +26,8 @@ preprocessing:
 model:
   type: "qwen3_vl"
   inference_mode: "single"
-  # Use local path - HuggingFace cache format
-  model_name_or_path: "Qwen/Qwen3-VL-8B-Instruct"
+  # Use local path 
+  model_name_or_path: "/gpfs/helios/home/dwenger/models/huggingface/transformers/models--Qwen--Qwen3-VL-8B-Instruct/snapshots/0c351dd01ed87e9c1b53cbc748cba10e6187ff3b"
   # OR use HuggingFace identifier (will download if not cached):
   # model_name_or_path: "Qwen/Qwen3-VL-8B-Instruct"
   device: "cuda"

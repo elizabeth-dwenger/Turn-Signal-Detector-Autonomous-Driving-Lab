@@ -25,8 +25,8 @@ preprocessing:
 model:
   type: "cosmos_reason1"
   inference_mode: "video"
-  # Use local path - HuggingFace cache format
-  model_name_or_path: "nvidia/Cosmos-Reason1-7B"
+  # Use local path
+  model_name_or_path: "/gpfs/helios/home/dwenger/models/huggingface/transformers/models--nvidia--Cosmos-Reason1-7B/snapshots/375e24000b24baed78f4618d3dd779e47cd96323"
   # OR use HuggingFace identifier (will download if not cached):
   # model_name_or_path: "nvidia/Cosmos-Reason1-7B"
   device: "cuda"

@@ -31,14 +31,24 @@ class QwenVLDetector(TurnSignalDetector):
             logger.warning("CUDA requested but not available. Falling back to CPU.")
             self.device = "cpu"
         
+        # Import AutoProcessor first (needed for all)
+        from transformers import AutoProcessor
+        
         # Determine which model class to use based on model name
-        if "Qwen3" in self.model_name or "qwen3" in self.model_name.lower():
-            from transformers import AutoModelForVision2Seq, AutoProcessor
-            logger.info("Detected Qwen3-VL model, using AutoModelForVision2Seq")
-            model_class = AutoModelForVision2Seq
+        # Both Qwen2.5-VL and Qwen3-VL use the newer AutoModelForImageTextToText class
+        # Only Qwen2-VL (2.0) uses the old Qwen2VLForConditionalGeneration class
+        
+        model_name_lower = self.model_name.lower()
+        
+        if "qwen3" in model_name_lower or "qwen2.5" in model_name_lower or "qwen-2.5" in model_name_lower:
+            # Qwen3-VL and Qwen2.5-VL both use the newer class
+            from transformers import AutoModelForImageTextToText
+            logger.info(f"Detected Qwen3-VL or Qwen2.5-VL model, using AutoModelForImageTextToText")
+            model_class = AutoModelForImageTextToText
         else:
-            from transformers import Qwen2VLForConditionalGeneration, AutoProcessor
-            logger.info("Detected Qwen2/2.5-VL model, using Qwen2VLForConditionalGeneration")
+            # Qwen2-VL (2.0) uses the old class
+            from transformers import Qwen2VLForConditionalGeneration
+            logger.info("Detected Qwen2-VL model, using Qwen2VLForConditionalGeneration")
             model_class = Qwen2VLForConditionalGeneration
         
         # Load processor (handles images + text)
@@ -89,7 +99,7 @@ class QwenVLDetector(TurnSignalDetector):
         
         self.model.eval()
         
-        logger.info(f"✓ Qwen VL model loaded on {self.device}")
+        logger.info(f"  Qwen VL model loaded on {self.device}")
         logger.info(f"  Model type: {self.model.config.model_type}")
         logger.info(f"  Dtype: {self.model.dtype}")
     
@@ -173,12 +183,6 @@ class QwenVLDetector(TurnSignalDetector):
     def predict_single(self, image: np.ndarray) -> Dict:
         """
         Predict from single image.
-        
-        Args:
-            image: (H, W, C) in [0, 1] range
-        
-        Returns:
-            Prediction dict
         """
         start_time = time.time()
         
@@ -251,12 +255,6 @@ class QwenVLDetector(TurnSignalDetector):
     def predict_batch(self, images: List[np.ndarray]) -> List[Dict]:
         """
         Batch prediction for multiple single images.
-        
-        Args:
-            images: List of (H, W, C) arrays
-        
-        Returns:
-            List of prediction dicts
         """
         start_time = time.time()
         
