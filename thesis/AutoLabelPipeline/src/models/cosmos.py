@@ -506,6 +506,7 @@ class CosmosDetector(TurnSignalDetector):
         confidence = max(0.0, min(1.0, confidence))
 
         last_frame = num_frames - 1
+        fps = self.config.model_kwargs.get('video_fps', 10.0)
 
         start_frame = parsed_json.get('start_frame')
         end_frame = parsed_json.get('end_frame')
