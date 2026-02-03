@@ -55,20 +55,23 @@ class DataConfig:
 @dataclass
 class PreprocessingConfig:
     """Image preprocessing configuration"""
-    resize_resolution: List[int] = field(default_factory=lambda: [640, 480])  # [width, height]
+    resize_resolution: List[int] = field(default_factory=lambda: [640, 480])
     normalize: bool = True
     maintain_aspect_ratio: bool = True
-    padding_color: List[int] = field(default_factory=lambda: [0, 0, 0])  # RGB for padding
+    padding_color: List[int] = field(default_factory=lambda: [0, 0, 0])
     
-    # For video models: sequence construction
-    max_sequence_length: Optional[int] = None  # Max frames in a sequence (None = no limit)
-    sequence_stride: int = 1  # Sample every Nth frame for long sequences
+    max_sequence_length: Optional[int] = None
+    sequence_stride: int = 1
+    
+    # Chunking for long sequences
+    enable_chunking: bool = True
+    chunk_size: int = 50  # frames per chunk (~5 sec at 10 FPS)
     
     def __post_init__(self):
         assert len(self.resize_resolution) == 2, "Resolution must be [width, height]"
         assert self.resize_resolution[0] > 0 and self.resize_resolution[1] > 0
         assert len(self.padding_color) == 3, "Padding color must be RGB [r, g, b]"
-
+        assert self.chunk_size > 0, "chunk_size must be positive"
 
 @dataclass
 class ModelConfig:

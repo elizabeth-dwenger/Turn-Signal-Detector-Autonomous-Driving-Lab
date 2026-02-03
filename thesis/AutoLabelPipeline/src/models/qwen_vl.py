@@ -5,7 +5,7 @@ Handles both video (multi-image) and single-image modes.
 """
 import torch
 import numpy as np
-from typing import List, Dict
+from typing import List, Dict, Tuple, Optional
 import time
 import logging
 from PIL import Image
@@ -103,17 +103,25 @@ class QwenVLDetector(TurnSignalDetector):
         logger.info(f"  Model type: {self.model.config.model_type}")
         logger.info(f"  Dtype: {self.model.dtype}")
     
-    def predict_video(self, video: np.ndarray) -> Dict:
+    def predict_video(self, video: np.ndarray = None, chunks: List[Tuple[np.ndarray, int, int]] = None) -> Dict:
         """
-        Predict from video sequence (multi-image input).
+        Predict from video sequence (multi-image input) or list of chunks.
         
         Args:
-            video: (T, H, W, C) in [0, 1] range
+            video: (T, H, W, C) in [0, 1] range for standard inference
+            chunks: List of (chunk_video, start_idx, end_idx) tuples for chunked inference
         
         Returns:
             Prediction dict
         """
         start_time = time.time()
+        
+        # Handle chunked inference
+        if chunks is not None:
+            return self._predict_video_chunked(chunks, start_time)
+        
+        if video is None:
+            raise ValueError("Either video or chunks must be provided to predict_video()")
         
         # Convert video frames to PIL Images
         images = self._video_to_pil_images(video)
@@ -179,6 +187,99 @@ class QwenVLDetector(TurnSignalDetector):
             'raw_output': response,
             'latency_ms': latency_ms
         }
+    
+    def _predict_video_chunked(self, chunks: List[Tuple[np.ndarray, int, int]], 
+                               start_time: float) -> Dict:
+        """
+        Process video in chunks and merge results.
+        """
+        all_segments = []
+        total_frames = max(end_idx for _, _, end_idx in chunks) + 1
+        
+        logger.info(f"Processing {len(chunks)} chunks for sequence with {total_frames} frames")
+        
+        for chunk_idx, (chunk_video, start_idx, end_idx) in enumerate(chunks):
+            logger.debug(f"Processing chunk {chunk_idx + 1}/{len(chunks)}: frames {start_idx}–{end_idx}")
+            
+            # Process this chunk as a video
+            try:
+                chunk_result = self.predict_video(video=chunk_video)
+                
+                # If result has segments, offset them
+                if 'segments' in chunk_result:
+                    for seg in chunk_result['segments']:
+                        seg['start_frame'] = seg.get('start_frame', 0) + start_idx
+                        seg['end_frame'] = min(seg.get('end_frame', 0) + start_idx, total_frames - 1)
+                        seg['start_time_seconds'] = round(seg['start_frame'] / 10.0, 2)
+                        seg['end_time_seconds'] = round(seg['end_frame'] / 10.0, 2)
+                        all_segments.append(seg)
+                else:
+                    # Single label result - convert to segment
+                    all_segments.append({
+                        'label': chunk_result.get('label', 'none'),
+                        'start_frame': start_idx,
+                        'end_frame': end_idx,
+                        'confidence': chunk_result.get('confidence', 0.5),
+                        'start_time_seconds': round(start_idx / 10.0, 2),
+                        'end_time_seconds': round(end_idx / 10.0, 2)
+                    })
+            
+            except Exception as e:
+                logger.error(f"Error processing chunk {chunk_idx + 1}: {e}")
+                # Add a fallback segment for this chunk
+                all_segments.append({
+                    'label': 'none',
+                    'start_frame': start_idx,
+                    'end_frame': end_idx,
+                    'confidence': 0.0,
+                    'start_time_seconds': round(start_idx / 10.0, 2),
+                    'end_time_seconds': round(end_idx / 10.0, 2)
+                })
+        
+        # Merge overlapping segments
+        merged_segments = self._merge_chunk_segments(all_segments, total_frames)
+        
+        latency_ms = (time.time() - start_time) * 1000
+        self.metrics['total_inferences'] += 1
+        self.metrics['total_latency_ms'] += latency_ms
+        
+        return {
+            'segments': merged_segments,
+            'reasoning': f'Chunked inference across {len(chunks)} windows',
+            'latency_ms': latency_ms,
+            'label': merged_segments[0]['label'] if merged_segments else 'none',
+            'confidence': max((s['confidence'] for s in merged_segments), default=0.0),
+            'raw_output': f'Processed {len(chunks)} chunks',
+        }
+    
+    def _merge_chunk_segments(self, segments: List[Dict], total_frames: int) -> List[Dict]:
+        """Merge overlapping segments from chunks."""
+        if not segments:
+            return [{
+                'label': 'none',
+                'start_frame': 0,
+                'end_frame': total_frames - 1,
+                'confidence': 0.5,
+                'start_time_seconds': 0.0,
+                'end_time_seconds': round((total_frames - 1) / 10.0, 2)
+            }]
+        
+        # Sort by start frame
+        segments = sorted(segments, key=lambda s: s['start_frame'])
+        
+        merged = [segments[0].copy()]
+        for seg in segments[1:]:
+            last = merged[-1]
+            # Merge if same label and overlapping/adjacent
+            if (seg['label'] == last['label'] and 
+                seg['start_frame'] <= last['end_frame'] + 1):
+                last['end_frame'] = max(last['end_frame'], seg['end_frame'])
+                last['end_time_seconds'] = round(last['end_frame'] / 10.0, 2)
+                last['confidence'] = max(last['confidence'], seg['confidence'])
+            else:
+                merged.append(seg.copy())
+        
+        return merged
     
     def predict_single(self, image: np.ndarray) -> Dict:
         """

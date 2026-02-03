@@ -8,6 +8,7 @@ from typing import List, Tuple, Optional
 import logging
 
 from .data_structures import Frame, Sequence
+from utils.config import PreprocessingConfig
 
 
 logger = logging.getLogger(__name__)
@@ -133,14 +134,11 @@ class SequencePreprocessor:
     Combines ImagePreprocessor with temporal operations.
     """
     
-    def __init__(self, preprocessing_config):
-        """
-        preprocessing_config: PreprocessingConfig from configuration
-        """
-        self.config = preprocessing_config
-        self.image_preprocessor = ImagePreprocessor(preprocessing_config)
-        self.max_length = preprocessing_config.max_sequence_length
-        self.stride = preprocessing_config.sequence_stride
+    def __init__(self, config: PreprocessingConfig):
+        self.config = config
+        self.stride = config.sequence_stride
+        self.max_length = config.max_sequence_length
+        self.image_preprocessor = ImagePreprocessor(config)
     
     def preprocess_for_video(self, sequence: Sequence, use_crops: bool = True) -> np.ndarray:
         """
@@ -248,6 +246,49 @@ class SequencePreprocessor:
             windows.append((video, center_frame_id))
         
         return windows
+
+    def preprocess_for_video_chunked(self, sequence: Sequence, 
+                                     chunk_size: int = 50,
+                                     use_crops: bool = True) -> List[Tuple[np.ndarray, int, int]]:
+        """
+        Preprocess sequence into fixed-size chunks for memory-efficient inference.
+        """
+        # Get images
+        if use_crops:
+            images = [f.crop_image for f in sequence.frames if f.crop_image is not None]
+        else:
+            images = [f.full_image for f in sequence.frames if f.full_image is not None]
+        
+        if not images:
+            raise ValueError(f"No images in sequence {sequence.sequence_id}")
+        
+        # Apply stride if needed
+        if self.stride > 1:
+            images = images[::self.stride]
+        
+        # Create chunks
+        chunks = []
+        for i in range(0, len(images), chunk_size):
+            chunk_images = images[i:i + chunk_size]
+            start_idx = i
+            end_idx = min(i + chunk_size - 1, len(images) - 1)
+            
+            # Preprocess chunk
+            preprocessed = [
+                self.image_preprocessor.preprocess_image(img) 
+                for img in chunk_images
+            ]
+            
+            # Stack into video tensor
+            video = np.stack(preprocessed, axis=0)  # (T, H, W, C)
+            chunks.append((video, start_idx, end_idx))
+            
+            logger.debug(
+                f"Chunk {len(chunks)}: frames {start_idx}–{end_idx} "
+                f"({len(chunk_images)} frames, shape {video.shape})"
+            )
+        
+        return chunks
 
 
 def create_preprocessor(preprocessing_config, mode: str = 'auto'):

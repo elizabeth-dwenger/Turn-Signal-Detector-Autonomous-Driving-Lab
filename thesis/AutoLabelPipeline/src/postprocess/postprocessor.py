@@ -2,10 +2,11 @@
 Post-processing orchestrator.
 Coordinates temporal smoothing, quality control, and constraint enforcement.
 """
-from typing import List, Dict
 import logging
 import sys
 from pathlib import Path
+import numpy as np
+from typing import List, Dict, Tuple
 
 # Add src to path if needed
 if str(Path(__file__).parent.parent.parent) not in sys.path:
@@ -45,58 +46,123 @@ class Postprocessor:
             self.episode_reconstructor = EpisodeReconstructor(postprocessing_config.single_image)
         else:
             self.episode_reconstructor = None
+
+    def _apply_temporal_smoothing(self, predictions: List[Dict], actual_num_frames: int) -> List[Dict]:
+        """Apply temporal smoothing to predictions"""
+        return self.temporal_smoother.smooth_sequence(predictions)
     
-    def process_sequence(self, predictions: List[Dict], apply_quality_control: bool = True) -> Dict:
-        """
-        Apply all post-processing steps to sequence predictions.
-        """
-        logger.debug(f"Post-processing {len(predictions)} predictions ({self.inference_mode.value} mode)")
+    def _apply_quality_control(self, predictions: List[Dict], actual_num_frames: int) -> Tuple[List[Dict], List[Dict]]:
+        """Apply quality control checks"""
+        # Run quality checker
+        quality_report = self.quality_checker.check_predictions(predictions)
         
-        stats = {
-            'input_predictions': len(predictions),
-            'steps_applied': [],
-        }
-        
-        # Step 1: Episode reconstruction (single-image mode only)
-        if self.episode_reconstructor:
-            logger.debug("Step 1: Episode reconstruction")
-            predictions = self.episode_reconstructor.reconstruct_episodes(predictions)
-            stats['steps_applied'].append('episode_reconstruction')
-        
-        # Step 2: Temporal smoothing
-        if self.temporal_smoother.enabled:
-            logger.debug("Step 2: Temporal smoothing")
-            original_labels = [p['label'] for p in predictions]
-            predictions = self.temporal_smoother.smooth_sequence(predictions)
-            smoothed_count = sum(1 for i, p in enumerate(predictions) if p['label'] != original_labels[i])
-            stats['smoothed_frames'] = smoothed_count
-            stats['steps_applied'].append('temporal_smoothing')
-        
-        # Step 3: Constraint enforcement
-        logger.debug("Step 3: Constraint enforcement")
+        # Apply constraint enforcement
         predictions = self.constraint_enforcer.enforce_constraints(predictions)
-        stats['steps_applied'].append('constraint_enforcement')
         
-        # Step 4: Quality control
-        quality_report = None
+        # Mark flagged frames in predictions
+        flagged_indices = {f['frame_index'] for f in quality_report['flagged_frames']}
+        for i, pred in enumerate(predictions):
+            pred['flagged'] = i in flagged_indices
+        
+        return predictions, quality_report['flagged_frames']
+
+    def _count_flag_reasons(self, flagged: List[Dict]) -> Dict[str, int]:
+        """Count occurrences of each flag reason"""
+        from collections import Counter
+        reasons = Counter()
+        for f in flagged:
+            for reason in f.get('flags', []):
+                reasons[reason] += 1
+        return dict(reasons)
+
+    def _compute_confidence_stats(self, predictions: List[Dict]) -> Dict:
+        """Compute confidence statistics"""
+        if not predictions:
+            return {}
+        
+        confidences = [p['confidence'] for p in predictions]
+        return {
+            'mean': np.mean(confidences),
+            'median': np.median(confidences),
+            'std': np.std(confidences),
+            'min': np.min(confidences),
+            'max': np.max(confidences),
+        }
+
+    def _compute_label_distribution(self, predictions: List[Dict], actual_num_frames: int) -> Dict[str, int]:
+        """Compute distribution of labels across all frames"""
+        from collections import Counter
+        
+        # For segment-based predictions, count frames per label
+        label_counts = Counter()
+        
+        for pred in predictions:
+            if 'segments' in pred:
+                # Multi-segment format
+                for seg in pred['segments']:
+                    label = seg['label']
+                    start = seg.get('start_frame', 0)
+                    end = seg.get('end_frame', 0)
+                    frame_count = end - start + 1
+                    label_counts[label] += frame_count
+            else:
+                # Single prediction format
+                label_counts[pred['label']] += 1
+        
+        return dict(label_counts)
+    
+    def process_sequence(self, predictions: List[Dict], 
+                     actual_num_frames: int = None,
+                     apply_quality_control: bool = True) -> Dict:
+        """
+        Post-process predictions for a sequence.
+        
+        Args:
+            predictions: Raw model predictions
+            actual_num_frames: True number of frames in sequence (for quality metrics)
+            apply_quality_control: Whether to apply QC flags
+        """
+        if not predictions:
+            return {'predictions': [], 'quality_report': {}, 'stats': {}}
+        
+        # Use actual_num_frames if provided
+        if actual_num_frames is None:
+            # Fallback: infer from predictions (may be wrong)
+            actual_num_frames = max(
+                (p.get('end_frame', 0) for p in predictions),
+                default=len(predictions)
+            ) + 1
+        
+        # Apply smoothing
+        if self.config.temporal_smoothing_enabled:
+            predictions = self._apply_temporal_smoothing(predictions, actual_num_frames)
+        
+        # Apply quality control
+        flagged = []
         if apply_quality_control:
-            logger.debug("Step 4: Quality control")
-            quality_report = self.quality_checker.check_predictions(predictions)
-            stats['flagged_frames'] = quality_report['total_flagged']
-            stats['steps_applied'].append('quality_control')
+            predictions, flagged = self._apply_quality_control(predictions, actual_num_frames)
         
-        # Final statistics
-        stats['output_predictions'] = len(predictions)
-        stats['label_distribution'] = self._count_labels(predictions)
-        
-        logger.info(f"Post-processing complete: {len(stats['steps_applied'])} steps applied")
-        if quality_report:
-            logger.info(f"  {quality_report['total_flagged']} frames flagged for review")
+        # Generate quality report
+        quality_report = {
+            'total_frames': actual_num_frames, 
+            'flagged_frames': flagged,
+            'flag_reasons': self._count_flag_reasons(flagged),
+            'confidence_stats': self._compute_confidence_stats(predictions),
+            'label_distribution': self._compute_label_distribution(predictions, actual_num_frames),
+            'total_flagged': len(flagged),
+            'flag_rate': len(flagged) / actual_num_frames if actual_num_frames > 0 else 0,
+        }
         
         return {
             'predictions': predictions,
             'quality_report': quality_report,
-            'stats': stats
+            'stats': {
+                'input_predictions': len(predictions),
+                'steps_applied': ['constraint_enforcement', 'quality_control'] if apply_quality_control else [],
+                'flagged_frames': len(flagged),
+                'output_predictions': len(predictions),
+                'label_distribution': quality_report['label_distribution'],
+            }
         }
     
     def process_dataset(self, sequences_with_predictions: Dict[str, List[Dict]],

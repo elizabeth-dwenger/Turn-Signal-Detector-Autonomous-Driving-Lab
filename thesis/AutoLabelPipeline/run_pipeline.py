@@ -113,14 +113,21 @@ def run_pipeline(config_path: str, verbose: bool = False):
         try:
             # Preprocess and predict
             if config.model.inference_mode.value == 'video':
-                video = preprocessor.preprocess_for_video(sequence)
-                prediction = model.predict_video(video)
-                predictions = [prediction]  # Single prediction for whole sequence
-            else:
-                # Single-image mode
-                samples = preprocessor.preprocess_for_single_images(sequence)
-                images = [s[0] for s in samples]
-                predictions = model.predict_batch(images)
+                if (config.preprocessing.enable_chunking and 
+                    loaded > config.preprocessing.chunk_size):
+                    print(f"    Sequence is long ({loaded} frames), using chunked inference...")
+                    chunks = preprocessor.preprocess_for_video_chunked(
+                        sequence,
+                        chunk_size=config.preprocessing.chunk_size
+                    )
+                    print(f"    Split into {len(chunks)} chunks")
+                    prediction = model.predict_video(chunks=chunks)  # FIX: Use kwarg
+                    predictions = [prediction]
+                else:
+                    video = preprocessor.preprocess_for_video(sequence)
+                    print(f"    Video shape: {video.shape}")
+                    prediction = model.predict_video(video=video)  # FIX: Use kwarg
+                    predictions = [prediction]
             
             all_predictions[sequence.sequence_id] = predictions
         
@@ -170,7 +177,14 @@ def run_pipeline(config_path: str, verbose: bool = False):
     
     output_generator = create_output_generator(config)
     
-    # Save predictions
+    # Save predictions with correct frame counts
+    for sequence_id, result in processed_results.items():
+        seq = next((s for s in dataset.sequences if s.sequence_id == sequence_id), None)
+        actual_num_frames = seq.num_frames if seq else 1
+        
+        # Attach to result for output generator to use
+        result['actual_num_frames'] = actual_num_frames
+    
     summary = output_generator.save_dataset_predictions(processed_results)
     print(f"  Saved predictions in {len(config.output.formats)} format(s)")
     print(f"  Output directory: {config.experiment.output_dir}")

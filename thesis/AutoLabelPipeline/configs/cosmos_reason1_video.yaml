@@ -19,8 +19,10 @@ preprocessing:
   normalize: true
   maintain_aspect_ratio: true
   padding_color: [0, 0, 0]
-  max_sequence_length: null  # Cosmos can handle full sequences
+  max_sequence_length: null
   sequence_stride: 1
+  enable_chunking: true
+  chunk_size: 50  # ~5 seconds at 10 FPS
 
 model:
   type: "cosmos_reason1"
@@ -31,11 +33,11 @@ model:
   # model_name_or_path: "nvidia/Cosmos-Reason1-7B"
   device: "cuda"
   batch_size: 1  # Process one sequence at a time
-  max_new_tokens: 1000
+  max_new_tokens: 1500
   temperature: 0.0
   top_p: 1.0
   do_sample: false
-  prompt_template_path: "data/prompts/turn_signal_video.txt"
+  prompt_template_path: "data/prompts/turn_signal_video_segments.txt"
   
   # Not using API - loading from HuggingFace
   api_key_env: null
