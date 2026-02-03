@@ -5,7 +5,7 @@ Supports CSV, JSON, and COCO formats.
 import json
 import csv
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict
 from datetime import datetime
 import logging
 
@@ -14,343 +14,250 @@ logger = logging.getLogger(__name__)
 
 
 class CSVFormatter:
-    """
-    Saves predictions to CSV format.
-    Compatible with your original tracking data format.
-    """
+    """Format predictions as CSV file"""
     
     @staticmethod
-    def save(predictions_by_sequence: Dict[str, List[Dict]],
-             output_path: str,
-             include_confidence: bool = True,
-             include_metadata: bool = True):
+    def save(predictions: List[Dict], output_path: str, include_confidence: bool = True):
         """
         Save predictions to CSV file.
         """
-        output_path = Path(output_path)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
         
-        # Define CSV columns
-        columns = [
-            'sequence_id',
-            'frame_id',
-            'label',
-        ]
+        # Define columns
+        fieldnames = ['frame_id', 'label']
         
         if include_confidence:
-            columns.append('confidence')
+            fieldnames.append('confidence')
         
-        if include_metadata:
-            columns.extend([
-                'original_label',
-                'smoothed',
-                'reconstructed',
-                'constraint_enforced',
-                'flagged'
-            ])
+        # Add optional fields if present
+        if predictions and 'original_label' in predictions[0]:
+            fieldnames.append('original_label')
+        if predictions and 'smoothed' in predictions[0]:
+            fieldnames.append('smoothed')
+        if predictions and 'flagged' in predictions[0]:
+            fieldnames.append('flagged')
         
         # Write CSV
         with open(output_path, 'w', newline='') as f:
-            writer = csv.DictWriter(f, fieldnames=columns)
+            writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction='ignore')
             writer.writeheader()
             
-            for sequence_id, predictions in predictions_by_sequence.items():
-                for pred in predictions:
-                    row = {
-                        'sequence_id': sequence_id,
-                        'frame_id': pred.get('frame_id', 0),
-                        'label': pred['label'],
-                    }
-                    
-                    if include_confidence:
-                        row['confidence'] = f"{pred['confidence']:.4f}"
-                    
-                    if include_metadata:
-                        row['original_label'] = pred.get('original_label', '')
-                        row['smoothed'] = pred.get('smoothed', False)
-                        row['reconstructed'] = pred.get('reconstructed', False)
-                        row['constraint_enforced'] = pred.get('constraint_enforced', False)
-                        row['flagged'] = pred.get('flagged', False)
-                    
-                    writer.writerow(row)
+            for pred in predictions:
+                row = {k: pred.get(k, '') for k in fieldnames}
+                writer.writerow(row)
         
-        logger.info(f"Saved CSV to {output_path}")
+        logger.info(f"Saved {len(predictions)} predictions to CSV: {output_path}")
 
 
 class JSONFormatter:
-    """
-    Saves predictions to JSON format.
-    Includes full metadata and is easy to parse.
-    """
+    """Format predictions as JSON file"""
     
     @staticmethod
-    def save(predictions_by_sequence: Dict[str, List[Dict]],
-             output_path: str,
-             include_raw_output: bool = False,
-             metadata: Optional[Dict] = None):
+    def save(predictions: List[Dict], output_path: str,
+             metadata: Dict = None, include_raw_output: bool = False):
         """
         Save predictions to JSON file.
         
         Args:
-            predictions_by_sequence: Dict mapping sequence_id to prediction list
-            output_path: Path to output JSON file
-            include_raw_output: Whether to include raw model outputs
+            predictions: List of prediction dicts
+            output_path: Output JSON file path
             metadata: Additional metadata to include
+            include_raw_output: Whether to include raw model outputs
         """
-        output_path = Path(output_path)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
         
-        # Build output structure
+        # Prepare output
         output = {
             'metadata': metadata or {},
             'timestamp': datetime.now().isoformat(),
-            'sequences': {}
+            'num_predictions': len(predictions),
+            'predictions': []
         }
         
-        for sequence_id, predictions in predictions_by_sequence.items():
-            sequence_data = {
-                'sequence_id': sequence_id,
-                'num_frames': len(predictions),
-                'predictions': []
-            }
+        # Clean predictions
+        for pred in predictions:
+            clean_pred = pred.copy()
             
-            for pred in predictions:
-                pred_data = {
-                    'frame_id': pred.get('frame_id', 0),
-                    'label': pred['label'],
-                    'confidence': pred['confidence'],
-                }
-                
-                # Optional fields
-                if pred.get('reasoning'):
-                    pred_data['reasoning'] = pred['reasoning']
-                
-                if include_raw_output and pred.get('raw_output'):
-                    pred_data['raw_output'] = pred['raw_output']
-                
-                # Processing metadata
-                if pred.get('original_label'):
-                    pred_data['original_label'] = pred['original_label']
-                
-                if pred.get('smoothed'):
-                    pred_data['smoothed'] = True
-                
-                if pred.get('reconstructed'):
-                    pred_data['reconstructed'] = True
-                
-                if pred.get('constraint_enforced'):
-                    pred_data['constraint_enforced'] = True
-                
-                if pred.get('flags'):
-                    pred_data['flags'] = pred['flags']
-                
-                sequence_data['predictions'].append(pred_data)
+            # Remove raw_output if not requested
+            if not include_raw_output and 'raw_output' in clean_pred:
+                del clean_pred['raw_output']
             
-            output['sequences'][sequence_id] = sequence_data
+            output['predictions'].append(clean_pred)
         
         # Write JSON
         with open(output_path, 'w') as f:
             json.dump(output, f, indent=2)
         
-        logger.info(f"Saved JSON to {output_path}")
+        logger.info(f"Saved {len(predictions)} predictions to JSON: {output_path}")
 
 
 class COCOFormatter:
-    """
-    Saves predictions in COCO format.
-    Compatible with many visualization and evaluation tools.
-    """
+    """Format predictions in COCO format for compatibility with vision tools"""
     
     @staticmethod
-    def save(predictions_by_sequence: Dict[str, List[Dict]],
-             output_path: str,
-             image_info: Optional[Dict] = None):
+    def save(predictions: List[Dict], output_path: str,
+             sequence_info: Dict = None):
         """
-        Save predictions to COCO format.
-        """
-        output_path = Path(output_path)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
+        Save predictions in COCO format.
         
-        # COCO structure
+        Args:
+            predictions: List of prediction dicts
+            output_path: Output JSON file path
+            sequence_info: Information about the sequence
+        """
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        
+        # COCO format structure
         coco_output = {
             'info': {
-                'description': 'Turn Signal Detection Predictions',
+                'description': 'Turn Signal Detection Dataset',
                 'version': '1.0',
+                'year': datetime.now().year,
                 'date_created': datetime.now().isoformat()
             },
+            'licenses': [],
             'images': [],
             'annotations': [],
             'categories': [
-                {'id': 0, 'name': 'none', 'supercategory': 'turn_signal'},
-                {'id': 1, 'name': 'left', 'supercategory': 'turn_signal'},
-                {'id': 2, 'name': 'right', 'supercategory': 'turn_signal'},
-                {'id': 3, 'name': 'both', 'supercategory': 'turn_signal'},
+                {'id': 0, 'name': 'none'},
+                {'id': 1, 'name': 'left'},
+                {'id': 2, 'name': 'right'},
+                {'id': 3, 'name': 'both'}
             ]
         }
         
-        # Map labels to category IDs
-        label_to_cat_id = {
-            'none': 0,
-            'left': 1,
-            'right': 2,
-            'both': 3
-        }
+        # Add sequence info if provided
+        if sequence_info:
+            coco_output['info'].update(sequence_info)
         
-        image_id = 0
-        annotation_id = 0
+        # Category mapping
+        category_map = {'none': 0, 'left': 1, 'right': 2, 'both': 3}
         
-        for sequence_id, predictions in predictions_by_sequence.items():
-            for pred in predictions:
-                frame_id = pred.get('frame_id', 0)
-                
-                # Add image entry
-                image_entry = {
-                    'id': image_id,
-                    'sequence_id': sequence_id,
-                    'frame_id': frame_id,
-                    'file_name': f"{sequence_id}_frame_{frame_id:06d}.jpg",
+        # Create images and annotations
+        for i, pred in enumerate(predictions):
+            frame_id = pred.get('frame_id', i)
+            
+            # Image entry
+            image = {
+                'id': frame_id,
+                'file_name': f"frame_{frame_id:06d}.jpg",
+                'width': pred.get('width', 640),
+                'height': pred.get('height', 480)
+            }
+            coco_output['images'].append(image)
+            
+            # Annotation entry
+            annotation = {
+                'id': i,
+                'image_id': frame_id,
+                'category_id': category_map.get(pred['label'], 0),
+                'score': pred.get('confidence', 1.0),
+                'attributes': {
+                    'smoothed': pred.get('smoothed', False),
+                    'flagged': pred.get('flagged', False)
                 }
-                
-                # Add image metadata if provided
-                if image_info and sequence_id in image_info:
-                    info = image_info[sequence_id]
-                    image_entry['width'] = info.get('width', 0)
-                    image_entry['height'] = info.get('height', 0)
-                
-                coco_output['images'].append(image_entry)
-                
-                # Add annotation
-                label = pred['label']
-                category_id = label_to_cat_id.get(label, 0)
-                
-                annotation = {
-                    'id': annotation_id,
-                    'image_id': image_id,
-                    'category_id': category_id,
-                    'confidence': pred['confidence'],
-                }
-                
-                coco_output['annotations'].append(annotation)
-                
-                image_id += 1
-                annotation_id += 1
+            }
+            coco_output['annotations'].append(annotation)
         
-        # Write COCO JSON
+        # Write JSON
         with open(output_path, 'w') as f:
             json.dump(coco_output, f, indent=2)
         
-        logger.info(f"Saved COCO format to {output_path}")
+        logger.info(f"Saved {len(predictions)} predictions to COCO format: {output_path}")
+
+
+class SequenceFormatter:
+    """Format predictions organized by sequences"""
+    
+    @staticmethod
+    def save_multiple_sequences(sequences_predictions: Dict[str, List[Dict]],
+                                output_dir: str, format: str = 'json'):
+        """
+        Save predictions for multiple sequences.
+        
+        Args:
+            sequences_predictions: Dict mapping sequence_id to predictions
+            output_dir: Output directory
+            format: Output format ('json', 'csv', 'coco')
+        """
+        output_path = Path(output_dir)
+        output_path.mkdir(parents=True, exist_ok=True)
+        
+        formatters = {
+            'json': JSONFormatter,
+            'csv': CSVFormatter,
+            'coco': COCOFormatter
+        }
+        
+        formatter = formatters.get(format)
+        if not formatter:
+            raise ValueError(f"Unknown format: {format}")
+        
+        # Save each sequence
+        for sequence_id, predictions in sequences_predictions.items():
+            # Clean sequence_id for filename
+            safe_id = sequence_id.replace('/', '_').replace('\\', '_')
+            filename = f"{safe_id}.{format if format != 'coco' else 'json'}"
+            file_path = output_path / filename
+            
+            if format == 'coco':
+                formatter.save(
+                    predictions,
+                    str(file_path),
+                    sequence_info={'sequence_id': sequence_id}
+                )
+            else:
+                formatter.save(predictions, str(file_path))
+        
+        logger.info(f"Saved {len(sequences_predictions)} sequences to {output_dir}")
 
 
 class ReviewQueueFormatter:
-    """
-    Formats flagged predictions for manual review.
-    Creates a simple format for annotation tools.
-    """
+    """Format flagged frames for manual review"""
     
     @staticmethod
-    def save(quality_reports: Dict[str, Dict],
-             predictions_by_sequence: Dict[str, List[Dict]],
-             output_path: str):
+    def save(flagged_frames: List[Dict], output_path: str,
+             sequence_id: str = None):
         """
-        Save review queue to JSON.
+        Save review queue (flagged frames).
+        
+        Args:
+            flagged_frames: List of flagged frame dicts
+            output_path: Output file path
+            sequence_id: Sequence identifier
         """
-        output_path = Path(output_path)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
         
         review_queue = {
             'metadata': {
-                'created': datetime.now().isoformat(),
-                'description': 'Frames flagged for manual review'
+                'sequence_id': sequence_id,
+                'timestamp': datetime.now().isoformat(),
+                'num_flagged': len(flagged_frames)
             },
-            'total_flagged': 0,
-            'frames': []
+            'flagged_frames': flagged_frames
         }
         
-        for sequence_id, quality_report in quality_reports.items():
-            if not quality_report or 'flagged_frames' not in quality_report:
-                continue
-            
-            predictions = predictions_by_sequence.get(sequence_id, [])
-            
-            for flagged in quality_report['flagged_frames']:
-                frame_idx = flagged['frame_index']
-                
-                # Get full prediction
-                if frame_idx < len(predictions):
-                    pred = predictions[frame_idx]
-                    
-                    frame_entry = {
-                        'sequence_id': sequence_id,
-                        'frame_id': pred.get('frame_id', frame_idx),
-                        'frame_index': frame_idx,
-                        'label': pred['label'],
-                        'confidence': pred['confidence'],
-                        'flags': flagged['flags'],
-                        'needs_review': True
-                    }
-                    
-                    review_queue['frames'].append(frame_entry)
-                    review_queue['total_flagged'] += 1
-        
-        # Write review queue
         with open(output_path, 'w') as f:
             json.dump(review_queue, f, indent=2)
         
-        logger.info(f"Saved review queue to {output_path} ({review_queue['total_flagged']} frames)")
+        logger.info(f"Saved review queue with {len(flagged_frames)} flagged frames: {output_path}")
 
 
-def save_predictions(predictions_by_sequence: Dict[str, List[Dict]],
-                    output_dir: str,
-                    formats: List[str] = ['csv', 'json'],
-                    config: Optional[Dict] = None) -> Dict[str, str]:
+def save_predictions(predictions: List[Dict],
+                    output_path: str,
+                    format: str = 'json',
+                    **kwargs):
     """
-    Save predictions in multiple formats.
-    
-    Args:
-        predictions_by_sequence: Dict mapping sequence_id to prediction list
-        output_dir: Output directory
-        formats: List of formats to save ('csv', 'json', 'coco')
-        config: Optional configuration dict
-    
-    Returns:
-        Dict mapping format name to output file path
+    Convenience function to save predictions.
     """
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
+    formatters = {
+        'json': JSONFormatter,
+        'csv': CSVFormatter,
+        'coco': COCOFormatter
+    }
     
-    output_files = {}
+    formatter = formatters.get(format)
+    if not formatter:
+        raise ValueError(f"Unknown format: {format}. Choose from: {list(formatters.keys())}")
     
-    # CSV
-    if 'csv' in formats:
-        csv_path = output_dir / 'predictions.csv'
-        CSVFormatter.save(
-            predictions_by_sequence,
-            str(csv_path),
-            include_confidence=config.get('include_confidence', True) if config else True,
-            include_metadata=True
-        )
-        output_files['csv'] = str(csv_path)
-    
-    # JSON
-    if 'json' in formats:
-        json_path = output_dir / 'predictions.json'
-        JSONFormatter.save(
-            predictions_by_sequence,
-            str(json_path),
-            include_raw_output=config.get('include_raw_output', False) if config else False,
-            metadata=config.get('metadata') if config else None
-        )
-        output_files['json'] = str(json_path)
-    
-    # COCO
-    if 'coco' in formats:
-        coco_path = output_dir / 'predictions_coco.json'
-        COCOFormatter.save(
-            predictions_by_sequence,
-            str(coco_path),
-            image_info=config.get('image_info') if config else None
-        )
-        output_files['coco'] = str(coco_path)
-    
-    return output_files
+    formatter.save(predictions, output_path, **kwargs)

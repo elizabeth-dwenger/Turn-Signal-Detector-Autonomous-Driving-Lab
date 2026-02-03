@@ -1,387 +1,239 @@
 """
-Visualization generation for turn signal predictions.
-Creates annotated images and videos for spot-checking results.
+Visualization generation for predictions.
+Creates annotated images and videos showing predictions.
 """
 import cv2
 import numpy as np
 from pathlib import Path
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional
 import logging
-from tqdm import tqdm
 
 
 logger = logging.getLogger(__name__)
 
 
-class FrameVisualizer:
-    """
-    Creates visual annotations on frames showing predictions.
-    """
+class PredictionVisualizer:
+    """Create visualizations of predictions"""
     
-    def __init__(self, visualization_config=None):
+    # Color scheme
+    COLORS = {
+        'none': (200, 200, 200),   # Gray
+        'left': (0, 255, 255),      # Yellow
+        'right': (255, 165, 0),     # Orange
+        'both': (0, 0, 255),        # Red
+        'flagged': (255, 0, 255)    # Magenta
+    }
+    
+    def __init__(self, output_config):
         """
         Args:
-            visualization_config: Configuration for visualization settings
+            output_config: OutputConfig from configuration
         """
-        self.config = visualization_config or {}
-        
-        # Colors for labels (BGR format for OpenCV)
-        self.label_colors = {
-            'none': (200, 200, 200),  # Gray
-            'left': (0, 165, 255),     # Orange
-            'right': (0, 255, 255),    # Yellow
-            'both': (0, 0, 255),       # Red
-        }
-        
-        # Fonts and sizes
-        self.font = cv2.FONT_HERSHEY_SIMPLEX
-        self.font_scale = 0.7
-        self.thickness = 2
-        
-    def annotate_frame(self,
-                      image: np.ndarray,
-                      prediction: Dict,
-                      sequence_id: str = "",
-                      frame_id: int = 0,
-                      show_timeline: bool = True,
-                      timeline_predictions: Optional[List[Dict]] = None) -> np.ndarray:
+        self.config = output_config
+        self.output_dir = Path(output_config.visualization_output_dir or 'visualizations')
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+    
+    def visualize_frame(self, image: np.ndarray, prediction: Dict,
+                       ground_truth: str = None) -> np.ndarray:
         """
-        Annotate a single frame with prediction information.
-        
-        Args:
-            image: Input image (H, W, 3) BGR format
-            prediction: Prediction dict with label, confidence, etc.
-            sequence_id: Sequence identifier
-            frame_id: Frame number
-            show_timeline: Whether to show temporal context
-            timeline_predictions: List of predictions for timeline visualization
-        
-        Returns:
-            Annotated image
+        Annotate a single frame with prediction.
         """
-        # Create copy to avoid modifying original
-        annotated = image.copy()
-        h, w = annotated.shape[:2]
+        # Convert to BGR for OpenCV
+        if image.dtype == np.float32 or image.dtype == np.float64:
+            image = (image * 255).astype(np.uint8)
         
-        # Extract prediction info
+        vis_image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR).copy()
+        h, w = vis_image.shape[:2]
+        
+        # Get prediction info
         label = prediction['label']
-        confidence = prediction.get('confidence', 0.0)
+        confidence = prediction['confidence']
+        flagged = prediction.get('flagged', False)
         
-        # Get label color
-        color = self.label_colors.get(label, (255, 255, 255))
+        # Choose color
+        color = self.COLORS.get(label, (255, 255, 255))
+        if flagged:
+            color = self.COLORS['flagged']
         
-        # 1. Draw header with sequence and frame info
-        header_text = f"{sequence_id[:40]} | Frame {frame_id}"
-        cv2.putText(annotated, header_text, (10, 30),
-                   self.font, 0.5, (255, 255, 255), 1)
+        # Draw label box
+        box_height = 80
+        cv2.rectangle(vis_image, (0, 0), (w, box_height), (0, 0, 0), -1)
         
-        # 2. Draw prediction box (top-left corner)
-        box_height = 120
-        box_width = 250
+        # Draw label text
+        label_text = f"Pred: {label.upper()}"
+        cv2.putText(vis_image, label_text, (10, 30),
+                   cv2.FONT_HERSHEY_SIMPLEX, 1.0, color, 2)
         
-        # Semi-transparent overlay
-        overlay = annotated.copy()
-        cv2.rectangle(overlay, (10, 50), (10 + box_width, 50 + box_height),
-                     (0, 0, 0), -1)
-        cv2.addWeighted(overlay, 0.6, annotated, 0.4, 0, annotated)
+        # Draw confidence
+        conf_text = f"Conf: {confidence:.2f}"
+        cv2.putText(vis_image, conf_text, (10, 60),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
         
-        # Draw border
-        cv2.rectangle(annotated, (10, 50), (10 + box_width, 50 + box_height),
-                     color, 2)
-        
-        # Label text
-        label_text = f"Label: {label.upper()}"
-        cv2.putText(annotated, label_text, (20, 80),
-                   self.font, self.font_scale, color, self.thickness)
-        
-        # Confidence text
-        conf_text = f"Conf: {confidence:.2%}"
-        conf_color = (0, 255, 0) if confidence >= 0.7 else (0, 165, 255) if confidence >= 0.5 else (0, 0, 255)
-        cv2.putText(annotated, conf_text, (20, 110),
-                   self.font, self.font_scale, conf_color, self.thickness)
-        
-        # Status indicator
-        status = "✓ High conf" if confidence >= 0.7 else "⚠ Low conf" if confidence >= 0.5 else "✗ Very low"
-        status_color = (0, 255, 0) if confidence >= 0.7 else (0, 165, 255) if confidence >= 0.5 else (0, 0, 255)
-        cv2.putText(annotated, status, (20, 140),
-                   self.font, 0.5, status_color, 1)
-        
-        # 3. Show processing flags if any
-        flags = []
-        if prediction.get('smoothed'):
-            flags.append('SMOOTHED')
-        if prediction.get('reconstructed'):
-            flags.append('RECONSTRUCTED')
-        if prediction.get('constraint_enforced'):
-            flags.append('CONSTRAINT')
-        if prediction.get('flagged'):
-            flags.append('FLAGGED')
-        
-        if flags:
-            flag_text = " | ".join(flags)
-            cv2.putText(annotated, flag_text, (20, 160),
-                       self.font, 0.4, (255, 255, 0), 1)
-        
-        # 4. Draw timeline if requested
-        if show_timeline and timeline_predictions:
-            self._draw_timeline(annotated, timeline_predictions, frame_id, w, h)
-        
-        return annotated
-    
-    def _draw_timeline(self,
-                      image: np.ndarray,
-                      predictions: List[Dict],
-                      current_frame_id: int,
-                      width: int,
-                      height: int):
-        """
-        Draw temporal context timeline at bottom of frame.
-        
-        Args:
-            image: Image to draw on (modified in-place)
-            predictions: List of all predictions in sequence
-            current_frame_id: Current frame ID
-            width: Image width
-            height: Image height
-        """
-        # Timeline parameters
-        timeline_height = 60
-        timeline_y = height - timeline_height - 10
-        timeline_x_start = 10
-        timeline_width = width - 20
-        
-        # Background
-        cv2.rectangle(image,
-                     (timeline_x_start, timeline_y),
-                     (timeline_x_start + timeline_width, timeline_y + timeline_height),
-                     (0, 0, 0), -1)
-        cv2.rectangle(image,
-                     (timeline_x_start, timeline_y),
-                     (timeline_x_start + timeline_width, timeline_y + timeline_height),
-                     (255, 255, 255), 1)
-        
-        # Title
-        cv2.putText(image, "Timeline:", (timeline_x_start + 5, timeline_y + 20),
-                   self.font, 0.5, (255, 255, 255), 1)
-        
-        # Draw timeline segments
-        if len(predictions) > 0:
-            segment_width = max(2, timeline_width // len(predictions))
+        # Draw ground truth if available
+        if ground_truth:
+            gt_text = f"GT: {ground_truth.upper()}"
+            match = "✓" if label == ground_truth else "✗"
+            gt_color = (0, 255, 0) if label == ground_truth else (0, 0, 255)
             
-            for i, pred in enumerate(predictions):
-                x = timeline_x_start + int(i * timeline_width / len(predictions))
-                label = pred['label']
-                color = self.label_colors.get(label, (255, 255, 255))
-                
-                # Draw segment
-                cv2.rectangle(image,
-                            (x, timeline_y + 25),
-                            (x + segment_width, timeline_y + 50),
-                            color, -1)
-                
-                # Highlight current frame
-                if pred.get('frame_id') == current_frame_id:
-                    cv2.rectangle(image,
-                                (x, timeline_y + 25),
-                                (x + segment_width, timeline_y + 50),
-                                (255, 255, 255), 2)
-                    # Draw pointer
-                    cv2.arrowedLine(image,
-                                  (x + segment_width // 2, timeline_y + 55),
-                                  (x + segment_width // 2, timeline_y + 23),
-                                  (255, 255, 255), 2)
+            cv2.putText(vis_image, f"{gt_text} {match}", (w - 250, 30),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.8, gt_color, 2)
+        
+        # Draw flags if any
+        if flagged:
+            flags_text = f"FLAGGED"
+            cv2.putText(vis_image, flags_text, (w - 200, 60),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, self.COLORS['flagged'], 2)
+        
+        # Draw indicator arrow/box for signal
+        if label in ['left', 'right', 'both']:
+            self._draw_signal_indicator(vis_image, label, color)
+        
+        return cv2.cvtColor(vis_image, cv2.COLOR_BGR2RGB)
     
-    def create_comparison_grid(self,
-                               images: List[np.ndarray],
-                               predictions: List[Dict],
-                               grid_size: Tuple[int, int] = None) -> np.ndarray:
-        """
-        Create a grid of annotated frames for comparison.
+    def _draw_signal_indicator(self, image: np.ndarray, label: str, color: tuple):
+        """Draw arrow indicating signal direction"""
+        h, w = image.shape[:2]
+        arrow_y = h - 50
         
-        Args:
-            images: List of images
-            predictions: List of predictions (same length as images)
-            grid_size: (rows, cols) or None for auto
+        if label == 'left' or label == 'both':
+            # Left arrow
+            cv2.arrowedLine(image, (w // 4, arrow_y), (50, arrow_y),
+                          color, thickness=5, tipLength=0.3)
         
-        Returns:
-            Grid image
+        if label == 'right' or label == 'both':
+            # Right arrow
+            cv2.arrowedLine(image, (3 * w // 4, arrow_y), (w - 50, arrow_y),
+                          color, thickness=5, tipLength=0.3)
+    
+    def visualize_sequence(self, images: List[np.ndarray],
+                          predictions: List[Dict],
+                          output_path: str,
+                          ground_truth: List[str] = None,
+                          fps: int = 10):
         """
+        Create video visualization of sequence.
+        """
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        
         if not images:
-            raise ValueError("No images provided")
+            logger.warning("No images to visualize")
+            return
         
-        n_images = len(images)
-        
-        # Auto-determine grid size
-        if grid_size is None:
-            cols = int(np.ceil(np.sqrt(n_images)))
-            rows = int(np.ceil(n_images / cols))
-            grid_size = (rows, cols)
-        
-        rows, cols = grid_size
-        
-        # Get image dimensions (assuming all same size)
-        h, w = images[0].shape[:2]
-        
-        # Create grid
-        grid = np.zeros((rows * h, cols * w, 3), dtype=np.uint8)
-        
-        for idx, (img, pred) in enumerate(zip(images, predictions)):
-            if idx >= rows * cols:
-                break
-            
-            row = idx // cols
-            col = idx % cols
-            
-            # Annotate image
-            annotated = self.annotate_frame(img, pred, show_timeline=False)
-            
-            # Place in grid
-            grid[row*h:(row+1)*h, col*w:(col+1)*w] = annotated
-        
-        return grid
-
-
-class VideoVisualizer:
-    """
-    Creates annotated videos from frame sequences.
-    """
-    
-    def __init__(self, fps: int = 10):
-        """
-        Args:
-            fps: Output video frame rate
-        """
-        self.fps = fps
-        self.frame_visualizer = FrameVisualizer()
-    
-    def create_annotated_video(self,
-                              images: List[np.ndarray],
-                              predictions: List[Dict],
-                              output_path: str,
-                              sequence_id: str = "",
-                              show_timeline: bool = True,
-                              codec: str = 'mp4v') -> str:
-        """
-        Create annotated video from image sequence.
-        
-        Args:
-            images: List of frame images
-            predictions: List of predictions (same length as images)
-            output_path: Output video file path
-            sequence_id: Sequence identifier
-            show_timeline: Show temporal context timeline
-            codec: Video codec (e.g., 'mp4v', 'avc1', 'XVID')
-        
-        Returns:
-            Path to created video file
-        """
-        if not images:
-            raise ValueError("No images provided")
-        
-        if len(images) != len(predictions):
-            raise ValueError(f"Image count ({len(images)}) != prediction count ({len(predictions)})")
-        
-        output_path = Path(output_path)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        # Get video dimensions
+        # Get dimensions from first image
         h, w = images[0].shape[:2]
         
         # Create video writer
-        fourcc = cv2.VideoWriter_fourcc(*codec)
-        out = cv2.VideoWriter(str(output_path), fourcc, self.fps, (w, h))
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        writer = cv2.VideoWriter(output_path, fourcc, fps, (w, h))
         
-        logger.info(f"Creating annotated video: {output_path}")
-        
-        # Process each frame
-        for i, (img, pred) in enumerate(tqdm(zip(images, predictions),
-                                             total=len(images),
-                                             desc="Creating video")):
-            # Annotate frame
-            annotated = self.frame_visualizer.annotate_frame(
-                img, pred,
-                sequence_id=sequence_id,
-                frame_id=pred.get('frame_id', i),
-                show_timeline=show_timeline,
-                timeline_predictions=predictions if show_timeline else None
-            )
+        # Annotate and write frames
+        for i, (image, pred) in enumerate(zip(images, predictions)):
+            gt = ground_truth[i] if ground_truth else None
+            annotated = self.visualize_frame(image, pred, gt)
             
-            # Write frame
-            out.write(annotated)
+            # Convert back to BGR for video writer
+            bgr_frame = cv2.cvtColor(annotated, cv2.COLOR_RGB2BGR)
+            writer.write(bgr_frame)
         
-        out.release()
-        logger.info(f"Saved annotated video to {output_path}")
+        writer.release()
+        logger.info(f"Saved visualization video: {output_path}")
+    
+    def visualize_timeline(self, predictions: List[Dict],
+                          output_path: str,
+                          ground_truth: List[str] = None):
+        """
+        Create timeline visualization showing predictions over time.
+        """
+        import matplotlib
+        matplotlib.use('Agg')  # Non-interactive backend
+        import matplotlib.pyplot as plt
         
-        return str(output_path)
-
-
-def visualize_samples(predictions_by_sequence: Dict[str, List[Dict]],
-                     images_by_sequence: Dict[str, List[np.ndarray]],
-                     output_dir: str,
-                     sample_rate: float = 0.01,
-                     format: str = 'images',
-                     **kwargs) -> List[str]:
-    """
-    Create visualizations for a sample of sequences.
-    
-    Args:
-        predictions_by_sequence: Dict mapping sequence_id to predictions
-        images_by_sequence: Dict mapping sequence_id to frame images
-        output_dir: Output directory for visualizations
-        sample_rate: Fraction of frames to visualize
-        format: 'images' or 'video'
-        **kwargs: Additional arguments for visualizers
-    
-    Returns:
-        List of output file paths
-    """
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    
-    output_files = []
-    
-    frame_viz = FrameVisualizer()
-    video_viz = VideoVisualizer(fps=kwargs.get('fps', 10))
-    
-    for sequence_id, predictions in predictions_by_sequence.items():
-        images = images_by_sequence.get(sequence_id)
+        # Create figure
+        fig, ax = plt.subplots(figsize=(16, 4))
         
-        if images is None or len(images) != len(predictions):
-            logger.warning(f"Skipping {sequence_id}: images not available or length mismatch")
-            continue
+        # Extract data
+        frames = [p.get('frame_id', i) for i, p in enumerate(predictions)]
+        labels = [p['label'] for p in predictions]
+        confidences = [p['confidence'] for p in predictions]
         
-        if format == 'video':
-            # Create full video for sequence
-            video_path = output_dir / f"{sequence_id.replace('/', '_')}_annotated.mp4"
-            output_file = video_viz.create_annotated_video(
-                images, predictions, str(video_path), sequence_id
-            )
-            output_files.append(output_file)
+        # Map labels to numbers
+        label_to_num = {'none': 0, 'left': 1, 'right': 2, 'both': 3}
+        label_nums = [label_to_num.get(l, 0) for l in labels]
         
-        else:  # images
-            # Sample frames
-            n_frames = len(predictions)
-            n_samples = max(1, int(n_frames * sample_rate))
-            sample_indices = np.linspace(0, n_frames - 1, n_samples, dtype=int)
-            
-            for idx in sample_indices:
-                img = images[idx]
-                pred = predictions[idx]
+        # Plot predictions
+        ax.plot(frames, label_nums, 'o-', label='Prediction',
+               color='blue', linewidth=2, markersize=4)
+        
+        # Plot ground truth if available
+        if ground_truth:
+            gt_nums = [label_to_num.get(gt, 0) for gt in ground_truth]
+            ax.plot(frames, gt_nums, 's-', label='Ground Truth',
+                   color='green', linewidth=1, markersize=3, alpha=0.7)
+        
+        # Plot confidence as background
+        ax2 = ax.twinx()
+        ax2.fill_between(frames, confidences, alpha=0.3, color='gray', label='Confidence')
+        ax2.set_ylabel('Confidence', fontsize=12)
+        ax2.set_ylim([0, 1])
+        
+        # Formatting
+        ax.set_xlabel('Frame', fontsize=12)
+        ax.set_ylabel('Signal State', fontsize=12)
+        ax.set_yticks([0, 1, 2, 3])
+        ax.set_yticklabels(['None', 'Left', 'Right', 'Both'])
+        ax.set_title('Turn Signal Detection Timeline', fontsize=14, fontweight='bold')
+        ax.grid(True, alpha=0.3)
+        ax.legend(loc='upper left')
+        ax2.legend(loc='upper right')
+        
+        plt.tight_layout()
+        plt.savefig(output_path, dpi=150, bbox_inches='tight')
+        plt.close()
+        
+        logger.info(f"Saved timeline visualization: {output_path}")
+    
+    def create_sample_visualizations(self, sequences_data: Dict,
+                                    sample_rate: float = 0.01):
+        """
+        Create visualizations for sample of sequences.
+        """
+        num_to_sample = max(1, int(len(sequences_data) * sample_rate))
+        
+        # Sample sequences
+        import random
+        sampled = random.sample(list(sequences_data.items()), num_to_sample)
+        
+        for sequence_id, data in sampled:
+            try:
+                # Create safe filename
+                safe_id = sequence_id.replace('/', '_').replace('\\', '_')
                 
-                # Annotate frame
-                annotated = frame_viz.annotate_frame(
-                    img, pred,
-                    sequence_id=sequence_id,
-                    frame_id=pred.get('frame_id', idx),
-                    show_timeline=True,
-                    timeline_predictions=predictions
+                # Timeline visualization
+                timeline_path = self.output_dir / f"{safe_id}_timeline.png"
+                self.visualize_timeline(
+                    data['predictions'],
+                    str(timeline_path),
+                    data.get('ground_truth')
                 )
                 
-                # Save frame
-                frame_path = output_dir / f"{sequence_id.replace('/', '_')}_frame_{idx:06d}.jpg"
-                cv2.imwrite(str(frame_path), annotated)
-                output_files.append(str(frame_path))
-    
-    logger.info(f"Created {len(output_files)} visualization files in {output_dir}")
-    return output_files
+                # Video visualization (if images available)
+                if 'images' in data and data['images']:
+                    video_path = self.output_dir / f"{safe_id}_annotated.mp4"
+                    self.visualize_sequence(
+                        data['images'],
+                        data['predictions'],
+                        str(video_path),
+                        data.get('ground_truth')
+                    )
+            
+            except Exception as e:
+                logger.error(f"Error visualizing {sequence_id}: {e}")
+        
+        logger.info(f"Created visualizations for {len(sampled)} sequences in {self.output_dir}")
 
+
+def create_visualizer(output_config):
+    """
+    Factory function to create visualizer.
+    """
+    return PredictionVisualizer(output_config)

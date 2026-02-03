@@ -18,10 +18,6 @@ class QualityChecker:
     """
     
     def __init__(self, quality_control_config):
-        """
-        Args:
-            quality_control_config: QualityControlConfig from configuration
-        """
         # Handle None case with defaults
         if quality_control_config is None:
             # Use default values
@@ -45,12 +41,6 @@ class QualityChecker:
     def check_predictions(self, predictions: List[Dict]) -> Dict:
         """
         Run quality checks on predictions.
-        
-        Args:
-            predictions: List of prediction dicts
-        
-        Returns:
-            Quality report dict with flagged frames
         """
         report = {
             'total_frames': len(predictions),
@@ -181,12 +171,6 @@ class QualityChecker:
         """
         Filter predictions by confidence threshold.
         Low-confidence predictions set to 'none' or marked as uncertain.
-        
-        Args:
-            predictions: List of prediction dicts
-        
-        Returns:
-            Filtered predictions
         """
         filtered = []
         changed = 0

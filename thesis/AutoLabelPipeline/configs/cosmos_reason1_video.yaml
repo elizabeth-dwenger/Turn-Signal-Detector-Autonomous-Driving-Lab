@@ -31,7 +31,7 @@ model:
   # model_name_or_path: "nvidia/Cosmos-Reason1-7B"
   device: "cuda"
   batch_size: 1  # Process one sequence at a time
-  max_new_tokens: 150
+  max_new_tokens: 1000
   temperature: 0.0
   top_p: 1.0
   do_sample: false
@@ -49,13 +49,13 @@ model:
     # Add any Cosmos-specific parameters here
 
 postprocessing:
-  temporal_smoothing_enabled: true
-  smoothing_method: "median"
-  smoothing_window_size: 5  # Smaller window since model already does temporal reasoning
-  confidence_threshold: 0.65
-  min_signal_duration_frames: 3
+  temporal_smoothing_enabled: false
+  #smoothing_method: "median"
+  #smoothing_window_size: 5  # Smaller window since model already does temporal reasoning
+  confidence_threshold: 0.3
+  min_signal_duration_frames: 1
   max_signal_duration_frames: null
-  allow_both_signals: false
+  allow_both_signals: true
   single_image: null  # Not used in video mode
 
 quality_control:

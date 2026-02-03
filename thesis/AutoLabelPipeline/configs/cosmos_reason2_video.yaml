@@ -31,7 +31,7 @@ model:
   # model_name_or_path: "nvidia/Cosmos-Reason2-8B"
   device: "cuda"
   batch_size: 1
-  max_new_tokens: 150
+  max_new_tokens: 1000
   temperature: 0.0
   top_p: 1.0
   do_sample: false

@@ -28,7 +28,7 @@ model:
   model_name_or_path: "/gpfs/helios/home/dwenger/models/huggingface/transformers/models--Qwen--Qwen3-VL-8B-Instruct/snapshots/0c351dd01ed87e9c1b53cbc748cba10e6187ff3b"
   device: "cuda"
   batch_size: 1
-  max_new_tokens: 100
+  max_new_tokens: 1000
   temperature: 0.0
   top_p: 1.0
   do_sample: false

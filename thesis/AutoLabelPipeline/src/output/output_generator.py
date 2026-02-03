@@ -1,18 +1,16 @@
 """
-Main output generation orchestrator.
-Coordinates all output formats, visualizations, and reports.
+Output generation orchestrator.
+Coordinates saving predictions, creating visualizations, and generating reports.
 """
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Dict, List
+import json
 import logging
 from datetime import datetime
 
-from .formatters import (
-    save_predictions, CSVFormatter, JSONFormatter,
-    COCOFormatter, ReviewQueueFormatter
-)
-from .visualizer import visualize_samples, FrameVisualizer, VideoVisualizer
-from .metrics_reporter import generate_and_save_report, MetricsReporter
+from .formatters import save_predictions, SequenceFormatter, ReviewQueueFormatter
+from .visualizer import create_visualizer
+from utils.enums import OutputFormat
 
 
 logger = logging.getLogger(__name__)
@@ -20,278 +18,206 @@ logger = logging.getLogger(__name__)
 
 class OutputGenerator:
     """
-    Orchestrates all output generation tasks.
-    Handles file formats, visualizations, metrics, and review queues.
+    Orchestrates all output generation.
+    Saves predictions, creates visualizations, and generates reports.
     """
     
     def __init__(self, output_config, experiment_config):
-        """
-        Args:
-            output_config: OutputConfig from configuration
-            experiment_config: ExperimentConfig for metadata
-        """
         self.config = output_config
-        self.experiment_config = experiment_config
         self.output_dir = Path(experiment_config.output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
-        # Track what was generated
-        self.generated_files = {
-            'labels': {},
-            'visualizations': [],
-            'reports': {},
-            'review_queue': None
-        }
-    
-    def generate_all_outputs(self,
-                            predictions_by_sequence: Dict[str, List[Dict]],
-                            quality_reports: Optional[Dict[str, Dict]] = None,
-                            images_by_sequence: Optional[Dict[str, List]] = None,
-                            model_metrics: Optional[Dict] = None,
-                            dataset_metadata: Optional[Dict] = None) -> Dict[str, Any]:
-        """
-        Generate all configured outputs.
-        
-        Args:
-            predictions_by_sequence: Dict mapping sequence_id to predictions list
-            quality_reports: Optional quality control reports per sequence
-            images_by_sequence: Optional images for visualization
-            model_metrics: Optional model performance metrics
-            dataset_metadata: Optional dataset information
-        
-        Returns:
-            Dict summarizing all generated outputs
-        """
-        logger.info("Starting output generation...")
-        
-        # 1. Generate label files
-        logger.info("Generating label files...")
-        self._generate_label_files(predictions_by_sequence, dataset_metadata)
-        
-        # 2. Generate visualizations
-        if self.config.save_visualizations and images_by_sequence:
-            logger.info("Generating visualizations...")
-            self._generate_visualizations(predictions_by_sequence, images_by_sequence)
+        # Initialize visualizer if needed
+        if output_config.save_visualizations:
+            self.visualizer = create_visualizer(output_config)
         else:
-            logger.info("Skipping visualizations (disabled or no images)")
-        
-        # 3. Generate metrics report
-        logger.info("Generating metrics report...")
-        self._generate_metrics_report(
-            predictions_by_sequence,
-            quality_reports,
-            model_metrics
-        )
-        
-        # 4. Generate review queue
-        if self.config.export_review_queue and quality_reports:
-            logger.info("Generating review queue...")
-            self._generate_review_queue(predictions_by_sequence, quality_reports)
-        else:
-            logger.info("Skipping review queue (disabled or no quality reports)")
-        
-        logger.info("Output generation complete!")
-        
-        return self.get_summary()
+            self.visualizer = None
     
-    def _generate_label_files(self,
-                             predictions_by_sequence: Dict[str, List[Dict]],
-                             metadata: Optional[Dict] = None):
-        """Generate label files in configured formats"""
-        
-        # Build metadata
-        if metadata is None:
-            metadata = {}
-        
-        metadata.update({
-            'experiment': self.experiment_config.name,
-            'output_dir': str(self.output_dir),
-            'timestamp': datetime.now().isoformat()
-        })
-        
-        formats = [f.value for f in self.config.formats]
-        
-        config_dict = {
-            'include_confidence': self.config.include_confidence,
-            'include_raw_output': self.config.include_raw_output,
-            'metadata': metadata
-        }
-        
-        # Save in all requested formats
-        output_files = save_predictions(
-            predictions_by_sequence,
-            str(self.output_dir),
-            formats=formats,
-            config=config_dict
-        )
-        
-        self.generated_files['labels'] = output_files
-        
-        logger.info(f"Generated label files: {list(output_files.keys())}")
-    
-    def _generate_visualizations(self,
-                                predictions_by_sequence: Dict[str, List[Dict]],
-                                images_by_sequence: Dict[str, List]):
-        """Generate visualization outputs"""
-        
-        viz_dir = self.config.visualization_output_dir or (self.output_dir / 'visualizations')
-        viz_dir = Path(viz_dir)
-        viz_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Generate sample visualizations
-        output_files = visualize_samples(
-            predictions_by_sequence,
-            images_by_sequence,
-            str(viz_dir),
-            sample_rate=self.config.visualization_sample_rate,
-            format='images'  # Can be made configurable
-        )
-        
-        self.generated_files['visualizations'] = output_files
-        
-        logger.info(f"Generated {len(output_files)} visualization files in {viz_dir}")
-    
-    def _generate_metrics_report(self,
-                                predictions_by_sequence: Dict[str, List[Dict]],
-                                quality_reports: Optional[Dict[str, Dict]],
-                                model_metrics: Optional[Dict]):
-        """Generate metrics report"""
-        
-        report_path = self.output_dir / 'metrics_report.json'
-        
-        # Determine model name
-        model_name = getattr(self.experiment_config, 'description', 'Unknown Model')
-        dataset_name = str(self.output_dir.name)
-        
-        saved_path = generate_and_save_report(
-            predictions_by_sequence,
-            str(report_path),
-            model_name=model_name,
-            dataset_name=dataset_name,
-            quality_reports=quality_reports,
-            model_metrics=model_metrics,
-            print_summary=True
-        )
-        
-        self.generated_files['reports']['metrics'] = saved_path
-        
-        logger.info(f"Generated metrics report: {saved_path}")
-    
-    def _generate_review_queue(self,
-                              predictions_by_sequence: Dict[str, List[Dict]],
-                              quality_reports: Dict[str, Dict]):
-        """Generate review queue for manual annotation"""
-        
-        review_path = self.output_dir / f'review_queue.{self.config.review_queue_format}'
-        
-        ReviewQueueFormatter.save(
-            quality_reports,
-            predictions_by_sequence,
-            str(review_path)
-        )
-        
-        self.generated_files['review_queue'] = str(review_path)
-        
-        logger.info(f"Generated review queue: {review_path}")
-    
-    def get_summary(self) -> Dict[str, Any]:
+    def save_sequence_predictions(self, sequence_id: str,
+                                  predictions: List[Dict],
+                                  quality_report: Dict = None) -> Dict:
         """
-        Get summary of all generated outputs.
-        
-        Returns:
-            Dict with file paths and statistics
+        Save predictions for a single sequence.
         """
-        return {
+        # Clean sequence_id for filenames
+        safe_id = sequence_id.replace('/', '_').replace('\\', '_')
+        
+        output_files = {}
+        
+        # Save in each requested format
+        for format in self.config.formats:
+            format_str = format.value
+            filename = f"{safe_id}.{format_str if format_str != 'coco' else 'json'}"
+            file_path = self.output_dir / filename
+            
+            # Call save_predictions with minimal kwargs
+            # Each formatter handles what it needs
+            if format_str == 'csv':
+                from .formatters import CSVFormatter
+                CSVFormatter.save(
+                    predictions,
+                    str(file_path),
+                    include_confidence=self.config.include_confidence
+                )
+            elif format_str == 'json':
+                from .formatters import JSONFormatter
+                JSONFormatter.save(
+                    predictions,
+                    str(file_path),
+                    metadata={'sequence_id': sequence_id},
+                    include_raw_output=self.config.include_raw_output
+                )
+            elif format_str == 'coco':
+                from .formatters import COCOFormatter
+                COCOFormatter.save(
+                    predictions,
+                    str(file_path),
+                    sequence_info={'sequence_id': sequence_id}
+                )
+            
+            output_files[format_str] = str(file_path)
+        
+        # Save review queue if frames are flagged
+        if self.config.export_review_queue and quality_report:
+            if quality_report.get('flagged_frames'):
+                review_path = self.output_dir / f"{safe_id}_review_queue.json"
+                ReviewQueueFormatter.save(
+                    quality_report['flagged_frames'],
+                    str(review_path),
+                    sequence_id=sequence_id
+                )
+                output_files['review_queue'] = str(review_path)
+        
+        return output_files
+    
+    def save_dataset_predictions(self, sequences_predictions: Dict[str, Dict]) -> Dict:
+        """
+        Save predictions for entire dataset.
+        """
+        logger.info(f"Saving predictions for {len(sequences_predictions)} sequences")
+        
+        summary = {
+            'timestamp': datetime.now().isoformat(),
+            'num_sequences': len(sequences_predictions),
             'output_directory': str(self.output_dir),
-            'generated_files': self.generated_files,
-            'file_count': {
-                'label_files': len(self.generated_files['labels']),
-                'visualizations': len(self.generated_files['visualizations']),
-                'reports': len(self.generated_files['reports']),
-                'review_queue': 1 if self.generated_files['review_queue'] else 0
+            'formats': [f.value for f in self.config.formats],
+            'sequences': {}
+        }
+        
+        # Save each sequence
+        for sequence_id, data in sequences_predictions.items():
+            output_files = self.save_sequence_predictions(
+                sequence_id,
+                data['predictions'],
+                data.get('quality_report')
+            )
+            
+            summary['sequences'][sequence_id] = {
+                'output_files': output_files,
+                'num_predictions': len(data['predictions']),
+                'flagged_frames': data.get('quality_report', {}).get('total_flagged', 0)
+            }
+        
+        # Save summary
+        summary_path = self.output_dir / 'dataset_summary.json'
+        with open(summary_path, 'w') as f:
+            json.dump(summary, f, indent=2)
+        
+        logger.info(f"Saved dataset summary: {summary_path}")
+        
+        return summary
+    
+    def create_visualizations(self, sequences_data: Dict):
+        """
+        Create visualizations for sequences.
+        """
+        if not self.visualizer:
+            logger.info("Visualizations disabled in config")
+            return
+        
+        logger.info(f"Creating visualizations (sample rate: {self.config.visualization_sample_rate})")
+        
+        self.visualizer.create_sample_visualizations(
+            sequences_data,
+            sample_rate=self.config.visualization_sample_rate
+        )
+    
+    def generate_report(self, dataset_stats: Dict, model_metrics: Dict = None) -> str:
+        """
+        Generate comprehensive report.
+        """
+        report_path = self.output_dir / 'pipeline_report.json'
+        
+        report = {
+            'timestamp': datetime.now().isoformat(),
+            'dataset_statistics': dataset_stats,
+            'output_directory': str(self.output_dir),
+            'configuration': {
+                'formats': [f.value for f in self.config.formats],
+                'include_confidence': self.config.include_confidence,
+                'visualizations_enabled': self.config.save_visualizations
             }
         }
+        
+        if model_metrics:
+            report['model_metrics'] = model_metrics
+        
+        with open(report_path, 'w') as f:
+            json.dump(report, f, indent=2)
+        
+        logger.info(f"Generated pipeline report: {report_path}")
+        
+        # Also create human-readable text report
+        text_report_path = self.output_dir / 'pipeline_report.txt'
+        self._generate_text_report(report, text_report_path)
+        
+        return str(report_path)
     
-    def print_summary(self):
-        """Print human-readable summary of outputs"""
-        summary = self.get_summary()
+    def _generate_text_report(self, report: Dict, output_path: str):
+        """Generate human-readable text report"""
+        with open(output_path, 'w') as f:
+            f.write("="*80 + "\n")
+            f.write("TURN SIGNAL DETECTION PIPELINE REPORT\n")
+            f.write("="*80 + "\n\n")
+            
+            f.write(f"Generated: {report['timestamp']}\n")
+            f.write(f"Output Directory: {report['output_directory']}\n\n")
+            
+            # Dataset statistics
+            f.write("DATASET STATISTICS\n")
+            f.write("-"*80 + "\n")
+            stats = report['dataset_statistics']
+            f.write(f"Total Sequences: {stats.get('total_sequences', 'N/A')}\n")
+            f.write(f"Total Frames: {stats.get('total_frames', 'N/A')}\n")
+            f.write(f"Frames Flagged: {stats.get('total_flagged', 'N/A')}\n\n")
+            
+            if 'label_distribution' in stats:
+                f.write("Label Distribution:\n")
+                for label, count in stats['label_distribution'].items():
+                    pct = count / stats['total_frames'] * 100 if stats['total_frames'] > 0 else 0
+                    f.write(f"  {label:.<20} {count:>6} ({pct:>5.1f}%)\n")
+            
+            # Model metrics
+            if 'model_metrics' in report:
+                f.write("\n\nMODEL METRICS\n")
+                f.write("-"*80 + "\n")
+                metrics = report['model_metrics']
+                for key, value in metrics.items():
+                    f.write(f"{key:.<40} {value}\n")
+            
+            # Configuration
+            f.write("\n\nCONFIGURATION\n")
+            f.write("-"*80 + "\n")
+            config = report['configuration']
+            f.write(f"Output Formats: {', '.join(config['formats'])}\n")
+            f.write(f"Include Confidence: {config['include_confidence']}\n")
+            f.write(f"Visualizations: {config['visualizations_enabled']}\n")
         
-        print("\n" + "="*70)
-        print("OUTPUT GENERATION SUMMARY")
-        print("="*70)
-        print(f"\nOutput Directory: {summary['output_directory']}")
-        
-        print("\nLabel Files:")
-        for format_name, path in self.generated_files['labels'].items():
-            print(f"  {format_name:8s}: {path}")
-        
-        if self.generated_files['visualizations']:
-            print(f"\nVisualizations: {len(self.generated_files['visualizations'])} files")
-            print(f"  Location: {Path(self.generated_files['visualizations'][0]).parent}")
-        
-        print("\nReports:")
-        for report_name, path in self.generated_files['reports'].items():
-            print(f"  {report_name}: {path}")
-        
-        if self.generated_files['review_queue']:
-            print(f"\nReview Queue: {self.generated_files['review_queue']}")
-        
-        print("\n" + "="*70)
+        logger.info(f"Generated text report: {output_path}")
 
 
 def create_output_generator(config):
     """
-    Factory function to create OutputGenerator from PipelineConfig.
-    
-    Args:
-        config: PipelineConfig instance
-    
-    Returns:
-        OutputGenerator instance
+    Factory function to create output generator.
     """
     return OutputGenerator(config.output, config.experiment)
-
-
-# Convenience functions for standalone use
-
-def save_labels_only(predictions_by_sequence: Dict[str, List[Dict]],
-                     output_dir: str,
-                     formats: List[str] = None) -> Dict[str, str]:
-    """
-    Quick function to just save label files.
-    
-    Args:
-        predictions_by_sequence: Predictions dict
-        output_dir: Output directory
-        formats: List of formats ('csv', 'json', 'coco')
-    
-    Returns:
-        Dict mapping format to file path
-    """
-    if formats is None:
-        formats = ['csv', 'json']
-    
-    return save_predictions(predictions_by_sequence, output_dir, formats)
-
-
-def generate_quick_report(predictions_by_sequence: Dict[str, List[Dict]],
-                         output_path: str,
-                         model_name: str = "Model") -> str:
-    """
-    Quick function to generate just a metrics report.
-    
-    Args:
-        predictions_by_sequence: Predictions dict
-        output_path: Output JSON path
-        model_name: Model identifier
-    
-    Returns:
-        Path to saved report
-    """
-    return generate_and_save_report(
-        predictions_by_sequence,
-        output_path,
-        model_name=model_name,
-        dataset_name="Dataset"
-    )
-

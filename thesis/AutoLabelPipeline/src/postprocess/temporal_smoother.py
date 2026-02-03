@@ -26,10 +26,6 @@ class TemporalSmoother:
     """
     
     def __init__(self, postprocessing_config):
-        """
-        Args:
-            postprocessing_config: PostprocessingConfig from configuration
-        """
         self.config = postprocessing_config
         self.method = postprocessing_config.smoothing_method
         self.window_size = postprocessing_config.smoothing_window_size
@@ -43,12 +39,6 @@ class TemporalSmoother:
     def smooth_sequence(self, predictions: List[Dict]) -> List[Dict]:
         """
         Apply temporal smoothing to sequence predictions.
-        
-        Args:
-            predictions: List of prediction dicts with 'label' and 'confidence'
-        
-        Returns:
-            List of smoothed predictions (same format)
         """
         if not self.enabled:
             logger.debug("Temporal smoothing disabled")
@@ -271,12 +261,6 @@ class EpisodeReconstructor:
         2. Group into episodes with max_gap tolerance
         3. Fill gaps within episodes
         4. Filter episodes by min_duration
-        
-        Args:
-            predictions: List of per-frame predictions
-        
-        Returns:
-            List of predictions with reconstructed labels
         """
         if not predictions:
             return predictions
