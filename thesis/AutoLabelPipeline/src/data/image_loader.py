@@ -49,8 +49,11 @@ class ImageLoader:
             logger.warning(f"Failed to load crop image: {crop_path}")
         
         # Load full frame if requested
-        if load_full_frame and frame.img_path and self.frame_base_dir:
-            img_path = self._resolve_path(frame.img_path, self.frame_base_dir)
+        if load_full_frame and frame.img_path:
+            if self.frame_base_dir:
+                img_path = self._resolve_path(frame.img_path, self.frame_base_dir)
+            else:
+                img_path = Path(frame.img_path)
             frame.full_image = self._load_image(img_path)
             
             if frame.full_image is None:

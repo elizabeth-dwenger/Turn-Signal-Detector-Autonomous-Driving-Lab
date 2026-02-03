@@ -15,7 +15,7 @@ from typing import List, Tuple, Dict
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent / 'src'))
 
-from utils.config import load_config
+from utils.config import load_config, set_random_seeds
 from data import (
     load_dataset_from_config,
     create_image_loader,
@@ -36,7 +36,7 @@ def setup_logging(verbose=False):
     )
 
 
-def segments_to_frames(segment_prediction: Dict, num_frames: int) -> List[Dict]:
+def segments_to_frames(segment_prediction: Dict, frame_ids: List[int], fps: float) -> List[Dict]:
     """
     Convert segment-based prediction to per-frame predictions.
     
@@ -48,14 +48,13 @@ def segments_to_frames(segment_prediction: Dict, num_frames: int) -> List[Dict]:
         List of per-frame prediction dicts
     """
     frame_predictions = []
-    
+    num_frames = len(frame_ids)
     segments = segment_prediction.get('segments', [])
     
     if not segments:
-        # Fallback: use primary label for all frames
-        for i in range(num_frames):
+        for frame_id in frame_ids:
             frame_predictions.append({
-                'frame_id': i,
+                'frame_id': frame_id,
                 'label': segment_prediction.get('label', 'none'),
                 'confidence': segment_prediction.get('confidence', 0.0),
                 'raw_output': segment_prediction.get('raw_output', '')
@@ -72,16 +71,18 @@ def segments_to_frames(segment_prediction: Dict, num_frames: int) -> List[Dict]:
         # Ensure we don't exceed num_frames
         start = max(0, min(start, num_frames - 1))
         end = max(0, min(end, num_frames - 1))
+        start_frame_id = frame_ids[start]
+        end_frame_id = frame_ids[end]
         
         for frame_idx in range(start, end + 1):
             frame_predictions.append({
-                'frame_id': frame_idx,
+                'frame_id': frame_ids[frame_idx],
                 'label': label,
                 'confidence': confidence,
-                'start_frame': start,
-                'end_frame': end,
-                'start_time_seconds': seg.get('start_time_seconds'),
-                'end_time_seconds': seg.get('end_time_seconds'),
+                'start_frame': start_frame_id,
+                'end_frame': end_frame_id,
+                'start_time_seconds': round(start_frame_id / fps, 2),
+                'end_time_seconds': round(end_frame_id / fps, 2),
                 'raw_output': segment_prediction.get('raw_output', ''),
                 'reasoning': segment_prediction.get('reasoning', '')
             })
@@ -103,13 +104,13 @@ def segments_to_frames(segment_prediction: Dict, num_frames: int) -> List[Dict]:
         complete_predictions = []
         pred_dict = {p['frame_id']: p for p in unique_predictions}
         
-        for i in range(num_frames):
-            if i in pred_dict:
-                complete_predictions.append(pred_dict[i])
+        for frame_id in frame_ids:
+            if frame_id in pred_dict:
+                complete_predictions.append(pred_dict[frame_id])
             else:
                 # Gap - fill with 'none'
                 complete_predictions.append({
-                    'frame_id': i,
+                    'frame_id': frame_id,
                     'label': 'none',
                     'confidence': 0.5,
                     'raw_output': segment_prediction.get('raw_output', ''),
@@ -119,6 +120,23 @@ def segments_to_frames(segment_prediction: Dict, num_frames: int) -> List[Dict]:
         return complete_predictions
     
     return unique_predictions
+
+
+def _get_frame_ids_for_video(sequence, preprocessor, use_crops: bool = True, apply_max_length: bool = True):
+    if use_crops:
+        frames = [f for f in sequence.frames if f.crop_image is not None]
+    else:
+        frames = [f for f in sequence.frames if f.full_image is not None]
+    
+    if preprocessor.stride > 1:
+        frames = frames[::preprocessor.stride]
+    
+    if apply_max_length and preprocessor.max_length and len(frames) > preprocessor.max_length:
+        import numpy as np
+        indices = np.linspace(0, len(frames) - 1, preprocessor.max_length, dtype=int)
+        frames = [frames[i] for i in indices]
+    
+    return [f.frame_id for f in frames]
 
 
 def test_pipeline(config_path: str, num_sequences: int = 10,
@@ -138,6 +156,8 @@ def test_pipeline(config_path: str, num_sequences: int = 10,
     print("Step 2: Loading configuration...")
     try:
         config = load_config(config_path)
+        set_random_seeds(config.experiment.random_seed)
+        config.model.model_kwargs['video_fps'] = config.data.video_fps
         print("Step 3: Configuration loaded successfully!")
     except Exception as e:
         print(f" Failed to load configuration: {e}")
@@ -287,10 +307,12 @@ def test_pipeline(config_path: str, num_sequences: int = 10,
         
         try:
             if config.model.inference_mode.value == 'video':
+                frame_ids = _get_frame_ids_for_video(sequence, preprocessor, use_crops=True)
                 # Video mode - returns segment-based predictions
                 if (config.preprocessing.enable_chunking and 
                     loaded > config.preprocessing.chunk_size):
                     print(f"    Sequence is long ({loaded} frames), using chunked inference...")
+                    frame_ids = _get_frame_ids_for_video(sequence, preprocessor, use_crops=True, apply_max_length=False)
                     chunks = preprocessor.preprocess_for_video_chunked(
                         sequence,
                         chunk_size=config.preprocessing.chunk_size
@@ -298,13 +320,14 @@ def test_pipeline(config_path: str, num_sequences: int = 10,
                     print(f"    Split into {len(chunks)} chunks")
                     segment_prediction = model.predict_video(chunks=chunks)
                 else:
-                    video = preprocessor.preprocess_for_video(sequence)
+                    video, frame_ids = preprocessor.preprocess_for_video_with_ids(sequence)
                     print(f"    Video shape: {video.shape}")
                     segment_prediction = model.predict_video(video=video)
                 
                 # Convert segment-based prediction to per-frame predictions
                 print(f"    Converting segments to frames...")
-                predictions = segments_to_frames(segment_prediction, sequence.num_frames)
+                fps = config.data.video_fps
+                predictions = segments_to_frames(segment_prediction, frame_ids, fps)
                 print(f"    Generated {len(predictions)} frame predictions")
                 
             else:

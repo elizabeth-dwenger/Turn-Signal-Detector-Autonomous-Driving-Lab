@@ -18,7 +18,7 @@ from datetime import datetime
 
 sys.path.insert(0, str(Path(__file__).parent / 'src'))
 
-from utils.config import load_config
+from utils.config import load_config, set_random_seeds
 from data import (
     load_dataset_from_config,
     create_image_loader,
@@ -34,6 +34,8 @@ def test_prompt(config_path: str, prompt_file: str, test_sequences_file: str,
     """
     # Load config
     config = load_config(config_path)
+    set_random_seeds(config.experiment.random_seed)
+    config.model.model_kwargs['video_fps'] = config.data.video_fps
     
     # Load test sequence IDs
     with open(test_sequences_file, 'r') as f:
@@ -64,7 +66,7 @@ def test_prompt(config_path: str, prompt_file: str, test_sequences_file: str,
     print(f"Loaded {dataset.num_sequences} sequences")
     
     # Setup
-    image_loader = create_image_loader(config.data, lazy=True)
+    image_loader = create_image_loader(config.data, lazy=False)
     preprocessor = SequencePreprocessor(config.preprocessing)
     
     # Load model
@@ -76,7 +78,7 @@ def test_prompt(config_path: str, prompt_file: str, test_sequences_file: str,
     
     for sequence in tqdm(dataset.sequences, desc="Processing"):
         # Load images
-        image_loader(sequence, load_full_frame=False)
+        image_loader.load_sequence_images(sequence, load_full_frames=False, show_progress=False)
         
         loaded = sum(1 for f in sequence.frames if f.crop_image is not None)
         if loaded == 0:
@@ -108,6 +110,10 @@ def test_prompt(config_path: str, prompt_file: str, test_sequences_file: str,
         finally:
             if hasattr(image_loader, 'clear_sequence'):
                 image_loader.clear_sequence(sequence)
+            else:
+                for frame in sequence.frames:
+                    frame.crop_image = None
+                    frame.full_image = None
     
     # Get metrics
     metrics = model.get_metrics()

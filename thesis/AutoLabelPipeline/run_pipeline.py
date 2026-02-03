@@ -11,7 +11,7 @@ from tqdm import tqdm
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent / 'src'))
 
-from utils.config import load_config
+from utils.config import load_config, set_random_seeds
 from data import (
     load_dataset_from_config,
     create_image_loader,
@@ -38,6 +38,92 @@ def setup_logging(log_file=None, verbose=False):
     )
 
 
+def _get_frame_ids_for_video(sequence, preprocessor, use_crops: bool = True, apply_max_length: bool = True):
+    """Get frame_ids used after stride/max_length filtering."""
+    if use_crops:
+        frames = [f for f in sequence.frames if f.crop_image is not None]
+    else:
+        frames = [f for f in sequence.frames if f.full_image is not None]
+    
+    if preprocessor.stride > 1:
+        frames = frames[::preprocessor.stride]
+    
+    if apply_max_length and preprocessor.max_length and len(frames) > preprocessor.max_length:
+        import numpy as np
+        indices = np.linspace(0, len(frames) - 1, preprocessor.max_length, dtype=int)
+        frames = [frames[i] for i in indices]
+    
+    return [f.frame_id for f in frames]
+
+
+def _segments_to_frames(segment_prediction, frame_ids, fps: float):
+    """
+    Convert segment-based prediction to per-frame predictions aligned to frame_ids.
+    """
+    num_frames = len(frame_ids)
+    predictions = []
+    segments = segment_prediction.get('segments', [])
+    
+    if not segments:
+        for frame_id in frame_ids:
+            predictions.append({
+                'frame_id': frame_id,
+                'label': segment_prediction.get('label', 'none'),
+                'confidence': segment_prediction.get('confidence', 0.0),
+                'raw_output': segment_prediction.get('raw_output', ''),
+                'reasoning': segment_prediction.get('reasoning', '')
+            })
+        return predictions
+    
+    for seg in segments:
+        label = seg['label']
+        start = seg.get('start_frame', 0)
+        end = seg.get('end_frame', num_frames - 1)
+        confidence = seg.get('confidence', 0.5)
+        start = max(0, min(start, num_frames - 1))
+        end = max(0, min(end, num_frames - 1))
+        start_frame_id = frame_ids[start]
+        end_frame_id = frame_ids[end]
+        
+        for idx in range(start, end + 1):
+            predictions.append({
+                'frame_id': frame_ids[idx],
+                'label': label,
+                'confidence': confidence,
+                'start_frame': start_frame_id,
+                'end_frame': end_frame_id,
+                'start_time_seconds': round(start_frame_id / fps, 2),
+                'end_time_seconds': round(end_frame_id / fps, 2),
+                'raw_output': segment_prediction.get('raw_output', ''),
+                'reasoning': segment_prediction.get('reasoning', '')
+            })
+    
+    predictions.sort(key=lambda x: x['frame_id'])
+    seen = set()
+    unique_predictions = []
+    for pred in predictions:
+        if pred['frame_id'] not in seen:
+            unique_predictions.append(pred)
+            seen.add(pred['frame_id'])
+    
+    if len(unique_predictions) < num_frames:
+        pred_dict = {p['frame_id']: p for p in unique_predictions}
+        complete_predictions = []
+        for frame_id in frame_ids:
+            if frame_id in pred_dict:
+                complete_predictions.append(pred_dict[frame_id])
+            else:
+                complete_predictions.append({
+                    'frame_id': frame_id,
+                    'label': 'none',
+                    'confidence': 0.5,
+                    'reasoning': 'Gap filled'
+                })
+        return complete_predictions
+    
+    return unique_predictions
+
+
 def run_pipeline(config_path: str, verbose: bool = False):
     """
     Run complete pipeline with memory-efficient processing.
@@ -48,6 +134,8 @@ def run_pipeline(config_path: str, verbose: bool = False):
     print("="*80)
     
     config = load_config(config_path)
+    set_random_seeds(config.experiment.random_seed)
+    config.model.model_kwargs['video_fps'] = config.data.video_fps
     print(f"\nConfiguration: {config_path}")
     print(f"  Experiment: {config.experiment.name}")
     print(f"  Model: {config.model.type.value}")
@@ -112,24 +200,52 @@ def run_pipeline(config_path: str, verbose: bool = False):
         
         try:
             # Preprocess and predict
+            sequence_key = f"{sequence.sequence_id}__track_{sequence.track_id}"
+            frame_ids = _get_frame_ids_for_video(sequence, preprocessor, use_crops=True)
+            fps = config.data.video_fps
+            
             if config.model.inference_mode.value == 'video':
                 if (config.preprocessing.enable_chunking and 
-                    loaded > config.preprocessing.chunk_size):
-                    print(f"    Sequence is long ({loaded} frames), using chunked inference...")
+                    loaded_count > config.preprocessing.chunk_size):
+                    print(f"    Sequence is long ({loaded_count} frames), using chunked inference...")
+                    frame_ids = _get_frame_ids_for_video(sequence, preprocessor, use_crops=True, apply_max_length=False)
                     chunks = preprocessor.preprocess_for_video_chunked(
                         sequence,
                         chunk_size=config.preprocessing.chunk_size
                     )
                     print(f"    Split into {len(chunks)} chunks")
-                    prediction = model.predict_video(chunks=chunks)  # FIX: Use kwarg
-                    predictions = [prediction]
+                    prediction = model.predict_video(chunks=chunks)
+                    predictions = _segments_to_frames(prediction, frame_ids, fps)
                 else:
-                    video = preprocessor.preprocess_for_video(sequence)
+                    video, frame_ids = preprocessor.preprocess_for_video_with_ids(sequence)
                     print(f"    Video shape: {video.shape}")
-                    prediction = model.predict_video(video=video)  # FIX: Use kwarg
-                    predictions = [prediction]
+                    prediction = model.predict_video(video=video)
+                    predictions = _segments_to_frames(prediction, frame_ids, fps)
+            else:
+                samples = preprocessor.preprocess_for_single_images(sequence)
+                images = [s[0] for s in samples]
+                frame_ids = [s[1] for s in samples]
+                predictions = []
+                batch_size = max(1, config.model.batch_size)
+                for i in range(0, len(images), batch_size):
+                    batch_images = images[i:i + batch_size]
+                    batch_frame_ids = frame_ids[i:i + batch_size]
+                    batch_preds = model.predict_batch(batch_images)
+                    for frame_id, pred in zip(batch_frame_ids, batch_preds):
+                        predictions.append({
+                            'frame_id': frame_id,
+                            'label': pred.get('label', 'none'),
+                            'confidence': pred.get('confidence', 0.0),
+                            'raw_output': pred.get('raw_output', ''),
+                            'reasoning': pred.get('reasoning', '')
+                        })
             
-            all_predictions[sequence.sequence_id] = predictions
+            all_predictions[sequence_key] = {
+                'predictions': predictions,
+                'sequence_id': sequence.sequence_id,
+                'track_id': sequence.track_id,
+                'actual_num_frames': sequence.num_frames
+            }
         
         except Exception as e:
             logger.error(f"Error processing sequence {sequence.sequence_id}: {e}")
@@ -157,9 +273,16 @@ def run_pipeline(config_path: str, verbose: bool = False):
     postprocessor = create_postprocessor(config)
     
     processed_results = {}
-    for sequence_id, predictions in tqdm(all_predictions.items(), desc="Post-processing"):
-        result = postprocessor.process_sequence(predictions, apply_quality_control=True)
-        processed_results[sequence_id] = result
+    for sequence_key, data in tqdm(all_predictions.items(), desc="Post-processing"):
+        result = postprocessor.process_sequence(
+            data['predictions'],
+            actual_num_frames=data['actual_num_frames'],
+            apply_quality_control=True
+        )
+        result['sequence_id'] = data['sequence_id']
+        result['track_id'] = data['track_id']
+        result['actual_num_frames'] = data['actual_num_frames']
+        processed_results[sequence_key] = result
     
     print(f"\n  Post-processing complete")
     
@@ -178,12 +301,8 @@ def run_pipeline(config_path: str, verbose: bool = False):
     output_generator = create_output_generator(config)
     
     # Save predictions with correct frame counts
-    for sequence_id, result in processed_results.items():
-        seq = next((s for s in dataset.sequences if s.sequence_id == sequence_id), None)
-        actual_num_frames = seq.num_frames if seq else 1
-        
-        # Attach to result for output generator to use
-        result['actual_num_frames'] = actual_num_frames
+    for sequence_key, result in processed_results.items():
+        result['actual_num_frames'] = result.get('actual_num_frames', 1)
     
     summary = output_generator.save_dataset_predictions(processed_results)
     print(f"  Saved predictions in {len(config.output.formats)} format(s)")
@@ -201,18 +320,18 @@ def run_pipeline(config_path: str, verbose: bool = False):
         )
         
         viz_data = {}
-        for sequence_id in tqdm(sequences_to_viz, desc="Preparing visualizations"):
-            result = processed_results[sequence_id]
+        for sequence_key in tqdm(sequences_to_viz, desc="Preparing visualizations"):
+            result = processed_results[sequence_key]
             
             # Find corresponding sequence
-            seq = next((s for s in dataset.sequences if s.sequence_id == sequence_id), None)
+            seq = next((s for s in dataset.sequences if f"{s.sequence_id}__track_{s.track_id}" == sequence_key), None)
             if seq:
                 # Reload images for this sequence
                 image_loader.load_sequence_images(seq, load_full_frames=False, show_progress=False)
                 
                 images = [f.crop_image for f in seq.frames if f.crop_image is not None]
                 
-                viz_data[sequence_id] = {
+                viz_data[sequence_key] = {
                     'images': images,
                     'predictions': result['predictions'],
                     'ground_truth': [f.true_label for f in seq.frames] if seq.has_ground_truth else None
@@ -223,7 +342,7 @@ def run_pipeline(config_path: str, verbose: bool = False):
                     frame.crop_image = None
                     frame.full_image = None
         
-        output_generator.create_visualizations(viz_data)
+        output_generator.create_visualizations(viz_data, sample_rate=1.0)
         print(f"  Visualizations created")
     
     # Generate report

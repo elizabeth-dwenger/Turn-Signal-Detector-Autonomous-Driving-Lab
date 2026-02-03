@@ -8,9 +8,9 @@ from pathlib import Path
 if str(Path(__file__).parent.parent.parent) not in sys.path:
     sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from src.postprocess.temporal_smoother import TemporalSmoother, EpisodeReconstructor
-from src.postprocess.quality_checker import QualityChecker, ConstraintEnforcer
-from src.postprocess.postprocessor import Postprocessor, create_postprocessor
+from .temporal_smoother import TemporalSmoother, EpisodeReconstructor
+from .quality_checker import QualityChecker, ConstraintEnforcer
+from .postprocessor import Postprocessor, create_postprocessor
 
 __all__ = [
     'TemporalSmoother',

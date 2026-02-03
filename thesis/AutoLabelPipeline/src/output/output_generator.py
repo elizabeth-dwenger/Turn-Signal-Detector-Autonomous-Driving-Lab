@@ -127,7 +127,7 @@ class OutputGenerator:
         
         return summary
     
-    def create_visualizations(self, sequences_data: Dict):
+    def create_visualizations(self, sequences_data: Dict, sample_rate: float = None):
         """
         Create visualizations for sequences.
         """
@@ -135,11 +135,12 @@ class OutputGenerator:
             logger.info("Visualizations disabled in config")
             return
         
-        logger.info(f"Creating visualizations (sample rate: {self.config.visualization_sample_rate})")
+        effective_sample_rate = self.config.visualization_sample_rate if sample_rate is None else sample_rate
+        logger.info(f"Creating visualizations (sample rate: {effective_sample_rate})")
         
         self.visualizer.create_sample_visualizations(
             sequences_data,
-            sample_rate=self.config.visualization_sample_rate
+            sample_rate=effective_sample_rate
         )
     
     def generate_report(self, dataset_stats: Dict, model_metrics: Dict = None) -> str:

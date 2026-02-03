@@ -3,18 +3,12 @@ Post-processing orchestrator.
 Coordinates temporal smoothing, quality control, and constraint enforcement.
 """
 import logging
-import sys
-from pathlib import Path
 import numpy as np
 from typing import List, Dict, Tuple
 
-# Add src to path if needed
-if str(Path(__file__).parent.parent.parent) not in sys.path:
-    sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-
-from src.postprocess.temporal_smoother import TemporalSmoother, EpisodeReconstructor
-from src.postprocess.quality_checker import QualityChecker, ConstraintEnforcer
-from src.utils.enums import InferenceMode
+from .temporal_smoother import TemporalSmoother, EpisodeReconstructor
+from .quality_checker import QualityChecker, ConstraintEnforcer
+from utils.enums import InferenceMode
 
 
 logger = logging.getLogger(__name__)
@@ -26,17 +20,12 @@ class Postprocessor:
     Handles both video and single-image modes.
     """
     
-    def __init__(self, postprocessing_config, model_config):
+    def __init__(self, postprocessing_config, model_config, quality_control_config=None):
         self.config = postprocessing_config
         self.inference_mode = model_config.inference_mode
         
         # Initialize components
         self.temporal_smoother = TemporalSmoother(postprocessing_config)
-        
-        # Quality checker - try to get quality_control from postprocessing_config or config
-        quality_control_config = None
-        if hasattr(postprocessing_config, 'quality_control'):
-            quality_control_config = postprocessing_config.quality_control
         
         self.quality_checker = QualityChecker(quality_control_config)
         self.constraint_enforcer = ConstraintEnforcer(postprocessing_config)
@@ -60,9 +49,10 @@ class Postprocessor:
         predictions = self.constraint_enforcer.enforce_constraints(predictions)
         
         # Mark flagged frames in predictions
-        flagged_indices = {f['frame_index'] for f in quality_report['flagged_frames']}
+        flagged_ids = {f.get('frame_id') for f in quality_report['flagged_frames']}
         for i, pred in enumerate(predictions):
-            pred['flagged'] = i in flagged_indices
+            pred_frame_id = pred.get('frame_id', i)
+            pred['flagged'] = pred_frame_id in flagged_ids
         
         return predictions, quality_report['flagged_frames']
 
@@ -214,4 +204,4 @@ def create_postprocessor(config):
     """
     Factory function to create postprocessor.
     """
-    return Postprocessor(config.postprocessing, config.model)
+    return Postprocessor(config.postprocessing, config.model, config.quality_control)

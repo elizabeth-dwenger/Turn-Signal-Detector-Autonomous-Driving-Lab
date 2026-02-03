@@ -172,6 +172,38 @@ class SequencePreprocessor:
         video = np.stack(preprocessed, axis=0)  # (T, H, W, C)
         
         return video
+
+    def preprocess_for_video_with_ids(self, sequence: Sequence, use_crops: bool = True) -> Tuple[np.ndarray, List[int]]:
+        """
+        Preprocess sequence and return video tensor plus original frame_ids.
+        """
+        # Get frames with images
+        if use_crops:
+            frames = [f for f in sequence.frames if f.crop_image is not None]
+        else:
+            frames = [f for f in sequence.frames if f.full_image is not None]
+        
+        if not frames:
+            raise ValueError(f"No images in sequence {sequence.sequence_id}")
+        
+        # Apply stride (temporal subsampling)
+        if self.stride > 1:
+            frames = frames[::self.stride]
+            logger.debug(f"Applied stride {self.stride}: {len(sequence.frames)} -> {len(frames)} frames")
+        
+        # Apply max length
+        if self.max_length and len(frames) > self.max_length:
+            indices = np.linspace(0, len(frames) - 1, self.max_length, dtype=int)
+            frames = [frames[i] for i in indices]
+            logger.debug(f"Applied max length {self.max_length}: sampled {len(frames)} frames")
+        
+        images = [f.crop_image if use_crops else f.full_image for f in frames]
+        frame_ids = [f.frame_id for f in frames]
+        
+        preprocessed = [self.image_preprocessor.preprocess_image(img) for img in images]
+        video = np.stack(preprocessed, axis=0)
+        
+        return video, frame_ids
     
     def preprocess_for_single_images(self, sequence: Sequence,
                                      use_crops: bool = True) -> List[Tuple[np.ndarray, int]]:
@@ -255,28 +287,28 @@ class SequencePreprocessor:
         """
         # Get images
         if use_crops:
-            images = [f.crop_image for f in sequence.frames if f.crop_image is not None]
+            frames = [f for f in sequence.frames if f.crop_image is not None]
         else:
-            images = [f.full_image for f in sequence.frames if f.full_image is not None]
+            frames = [f for f in sequence.frames if f.full_image is not None]
         
-        if not images:
+        if not frames:
             raise ValueError(f"No images in sequence {sequence.sequence_id}")
         
         # Apply stride if needed
         if self.stride > 1:
-            images = images[::self.stride]
+            frames = frames[::self.stride]
         
         # Create chunks
         chunks = []
-        for i in range(0, len(images), chunk_size):
-            chunk_images = images[i:i + chunk_size]
+        for i in range(0, len(frames), chunk_size):
+            chunk_frames = frames[i:i + chunk_size]
             start_idx = i
-            end_idx = min(i + chunk_size - 1, len(images) - 1)
+            end_idx = min(i + chunk_size - 1, len(frames) - 1)
             
             # Preprocess chunk
             preprocessed = [
-                self.image_preprocessor.preprocess_image(img) 
-                for img in chunk_images
+                self.image_preprocessor.preprocess_image(f.crop_image if use_crops else f.full_image) 
+                for f in chunk_frames
             ]
             
             # Stack into video tensor
@@ -285,7 +317,7 @@ class SequencePreprocessor:
             
             logger.debug(
                 f"Chunk {len(chunks)}: frames {start_idx}–{end_idx} "
-                f"({len(chunk_images)} frames, shape {video.shape})"
+                f"({len(chunk_frames)} frames, shape {video.shape})"
             )
         
         return chunks

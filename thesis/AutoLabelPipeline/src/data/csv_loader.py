@@ -96,28 +96,28 @@ class CSVLoader:
         """Convert DataFrame rows to Frame objects"""
         frames = []
         
-        for idx, row in df.iterrows():
+        for idx, row in enumerate(df.itertuples(index=False), start=0):
             try:
                 frame = Frame(
-                    sequence=row['sequence'],
-                    track_id=int(row['track_id']),
-                    frame_id=int(row['frame_id']),
-                    class_id=int(row['class_id']),
-                    score=float(row['score']),
+                    sequence=getattr(row, 'sequence'),
+                    track_id=int(getattr(row, 'track_id')),
+                    frame_id=int(getattr(row, 'frame_id')),
+                    class_id=int(getattr(row, 'class_id')),
+                    score=float(getattr(row, 'score')),
                     bbox=BoundingBox(
-                        x1=float(row['x1']),
-                        y1=float(row['y1']),
-                        x2=float(row['x2']),
-                        y2=float(row['y2'])
+                        x1=float(getattr(row, 'x1')),
+                        y1=float(getattr(row, 'y1')),
+                        x2=float(getattr(row, 'x2')),
+                        y2=float(getattr(row, 'y2'))
                     ),
-                    crop_path=str(row['crop_path']),
-                    img_path=str(row['img_path']),
-                    img_width=int(row['width']),
-                    img_height=int(row['height']),
-                    sequence_id=str(row['sequence_id']),
-                    true_label=str(row['true_label']) if pd.notna(row.get('true_label')) else None,
-                    sampled_frame_id=int(row.get('sampled_frame_id', -1)) if pd.notna(row.get('sampled_frame_id')) else -1,
-                    signal_start_frame=int(row.get('signal_start_frame', -1)) if pd.notna(row.get('signal_start_frame')) else -1
+                    crop_path=str(getattr(row, 'crop_path')),
+                    img_path=str(getattr(row, 'img_path')),
+                    img_width=int(getattr(row, 'width')),
+                    img_height=int(getattr(row, 'height')),
+                    sequence_id=str(getattr(row, 'sequence_id')),
+                    true_label=str(getattr(row, 'true_label')) if pd.notna(getattr(row, 'true_label')) else None,
+                    sampled_frame_id=int(getattr(row, 'sampled_frame_id')) if pd.notna(getattr(row, 'sampled_frame_id')) else -1,
+                    signal_start_frame=int(getattr(row, 'signal_start_frame')) if pd.notna(getattr(row, 'signal_start_frame')) else -1
                 )
                 frames.append(frame)
             

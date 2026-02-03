@@ -6,14 +6,8 @@ import numpy as np
 from typing import List, Dict, Optional
 from collections import Counter
 import logging
-import sys
-from pathlib import Path
 
-# Add src to path if needed
-if str(Path(__file__).parent.parent.parent) not in sys.path:
-    sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-
-from src.utils.enums import SmoothingMethod
+from utils.enums import SmoothingMethod
 
 
 logger = logging.getLogger(__name__)

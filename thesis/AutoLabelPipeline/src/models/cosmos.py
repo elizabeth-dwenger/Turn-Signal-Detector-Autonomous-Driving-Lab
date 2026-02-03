@@ -8,7 +8,7 @@ from typing import List, Dict, Optional, Tuple
 from PIL import Image
 
 from transformers import AutoModelForImageTextToText, AutoProcessor
-from qwen_vl_utils import process_vision_info
+from .qwen_vl_utils import process_vision_info
 
 from .base import TurnSignalDetector
 
@@ -46,6 +46,8 @@ class CosmosDetector(TurnSignalDetector):
 
         # Prepare model loading kwargs
         model_load_kwargs = self.config.model_kwargs.copy()
+        # Runtime-only args (not for from_pretrained)
+        model_load_kwargs.pop('video_fps', None)
 
         # Convert torch_dtype to dtype if needed
         if 'torch_dtype' in model_load_kwargs:
@@ -107,10 +109,11 @@ class CosmosDetector(TurnSignalDetector):
         images = self._video_to_pil_images(video)
         num_frames = len(images)
         
+        fps = self.config.model_kwargs.get('video_fps', 10.0)
         messages = [{
             "role": "user",
             "content": [
-                {"type": "video", "video": images, "fps": 4.0},
+                {"type": "video", "video": images, "fps": fps},
                 {"type": "text", "text": self.prompt}
             ],
         }]
@@ -133,23 +136,25 @@ class CosmosDetector(TurnSignalDetector):
             images = self._video_to_pil_images(chunk_video)
             chunk_num_frames = end_idx - start_idx + 1
             
+            fps = self.config.model_kwargs.get('video_fps', 10.0)
             messages = [{
                 "role": "user",
                 "content": [
-                    {"type": "video", "video": images, "fps": 4.0},
+                    {"type": "video", "video": images, "fps": fps},
                     {"type": "text", "text": self.prompt}
                 ],
             }]
             
             try:
-                chunk_result = self._run_inference(messages, start_time, num_frames=chunk_num_frames)
+                chunk_result = self._run_inference(messages, time.time(), num_frames=chunk_num_frames, update_metrics=False)
                 
                 # Offset segments to global frame indices
                 for seg in chunk_result.get('segments', []):
                     seg['start_frame'] = seg.get('start_frame', 0) + start_idx
                     seg['end_frame'] = min(seg.get('end_frame', 0) + start_idx, total_frames - 1)
-                    seg['start_time_seconds'] = round(seg['start_frame'] / 10.0, 2)
-                    seg['end_time_seconds'] = round(seg['end_frame'] / 10.0, 2)
+                    fps = self.config.model_kwargs.get('video_fps', 10.0)
+                    seg['start_time_seconds'] = round(seg['start_frame'] / fps, 2)
+                    seg['end_time_seconds'] = round(seg['end_frame'] / fps, 2)
                     all_segments.append(seg)
             
             except Exception as e:
@@ -160,8 +165,8 @@ class CosmosDetector(TurnSignalDetector):
                     'start_frame': start_idx,
                     'end_frame': end_idx,
                     'confidence': 0.0,
-                    'start_time_seconds': round(start_idx / 10.0, 2),
-                    'end_time_seconds': round(end_idx / 10.0, 2)
+                    'start_time_seconds': round(start_idx / fps, 2),
+                    'end_time_seconds': round(end_idx / fps, 2)
                 })
         
         # Merge overlapping segments
@@ -189,7 +194,7 @@ class CosmosDetector(TurnSignalDetector):
                 'end_frame': total_frames - 1,
                 'confidence': 0.5,
                 'start_time_seconds': 0.0,
-                'end_time_seconds': round((total_frames - 1) / 10.0, 2)
+                'end_time_seconds': round((total_frames - 1) / self.config.model_kwargs.get('video_fps', 10.0), 2)
             }]
         
         # Sort by start frame
@@ -202,7 +207,7 @@ class CosmosDetector(TurnSignalDetector):
             if (seg['label'] == last['label'] and 
                 seg['start_frame'] <= last['end_frame'] + 1):
                 last['end_frame'] = max(last['end_frame'], seg['end_frame'])
-                last['end_time_seconds'] = round(last['end_frame'] / 10.0, 2)
+                last['end_time_seconds'] = round(last['end_frame'] / self.config.model_kwargs.get('video_fps', 10.0), 2)
                 last['confidence'] = max(last['confidence'], seg['confidence'])
             else:
                 merged.append(seg.copy())
@@ -224,13 +229,17 @@ class CosmosDetector(TurnSignalDetector):
 
         return self._run_inference(messages, start_time, num_frames=1)
 
-    def _run_inference(self, messages: List[Dict], start_time: float, num_frames: int = 1) -> Dict:
+    def _run_inference(self, messages: List[Dict], start_time: float, num_frames: int = 1, update_metrics: bool = True) -> Dict:
         """Shared inference logic for both video and image"""
         # 1. Prepare inputs using chat template and processor
         text = self.processor.apply_chat_template(
             messages, tokenize=False, add_generation_prompt=True
         )
         image_inputs, video_inputs = process_vision_info(messages)
+        if not image_inputs:
+            image_inputs = None
+        if not video_inputs:
+            video_inputs = None
 
         inputs = self.processor(
             text=[text],
@@ -276,8 +285,9 @@ class CosmosDetector(TurnSignalDetector):
 
         # 5. Update Metrics
         latency_ms = (time.time() - start_time) * 1000
-        self.metrics['total_inferences'] += 1
-        self.metrics['total_latency_ms'] += latency_ms
+        if update_metrics:
+            self.metrics['total_inferences'] += 1
+            self.metrics['total_latency_ms'] += latency_ms
 
         # 6. Build return value — always include segments array
         result = {
@@ -403,6 +413,7 @@ class CosmosDetector(TurnSignalDetector):
 
         valid_labels = {'left', 'right', 'none', 'both'}
         last_frame = num_frames - 1
+        fps = self.config.model_kwargs.get('video_fps', 10.0)
         cleaned = []
 
         for seg in raw_segments:
@@ -457,13 +468,14 @@ class CosmosDetector(TurnSignalDetector):
                 e = max(e, s)          # end >= start
                 e = min(e, last_frame) # don't exceed video length
 
+            fps = self.config.model_kwargs.get('video_fps', 10.0)
             repaired.append({
                 'label': seg['label'],
                 'start_frame': s,
                 'end_frame': e,
                 'confidence': seg['confidence'],
-                'start_time_seconds': round(s / 10.0, 2),
-                'end_time_seconds': round(e / 10.0, 2),
+                'start_time_seconds': round(s / fps, 2),
+                'end_time_seconds': round(e / fps, 2),
             })
             cursor = e + 1
 
@@ -516,7 +528,7 @@ class CosmosDetector(TurnSignalDetector):
                 'end_frame': last_frame,
                 'confidence': confidence,
                 'start_time_seconds': 0.0,
-                'end_time_seconds': round(last_frame / 10.0, 2),
+                'end_time_seconds': round(last_frame / fps, 2),
             }]
 
         # Clamp
@@ -533,7 +545,7 @@ class CosmosDetector(TurnSignalDetector):
                 'end_frame': start_frame - 1,
                 'confidence': 0.85,
                 'start_time_seconds': 0.0,
-                'end_time_seconds': round((start_frame - 1) / 10.0, 2),
+                'end_time_seconds': round((start_frame - 1) / fps, 2),
             })
 
         # The signal segment itself
@@ -542,8 +554,8 @@ class CosmosDetector(TurnSignalDetector):
             'start_frame': start_frame,
             'end_frame': end_frame,
             'confidence': confidence,
-            'start_time_seconds': round(start_frame / 10.0, 2),
-            'end_time_seconds': round(end_frame / 10.0, 2),
+            'start_time_seconds': round(start_frame / fps, 2),
+            'end_time_seconds': round(end_frame / fps, 2),
         })
 
         # Trailing "none" segment (if signal ends before last frame)
@@ -553,8 +565,8 @@ class CosmosDetector(TurnSignalDetector):
                 'start_frame': end_frame + 1,
                 'end_frame': last_frame,
                 'confidence': 0.85,
-                'start_time_seconds': round((end_frame + 1) / 10.0, 2),
-                'end_time_seconds': round(last_frame / 10.0, 2),
+                'start_time_seconds': round((end_frame + 1) / fps, 2),
+                'end_time_seconds': round(last_frame / fps, 2),
             })
 
         return segments
@@ -562,6 +574,7 @@ class CosmosDetector(TurnSignalDetector):
     def _make_none_segments(self, num_frames: int, reasoning: str = "") -> Dict:
         """Safe fallback: entire video is 'none'."""
         last_frame = max(num_frames - 1, 0)
+        fps = self.config.model_kwargs.get('video_fps', 10.0)
         return {
             'segments': [{
                 'label': 'none',
@@ -569,7 +582,7 @@ class CosmosDetector(TurnSignalDetector):
                 'end_frame': last_frame,
                 'confidence': 0.0,
                 'start_time_seconds': 0.0,
-                'end_time_seconds': round(last_frame / 10.0, 2),
+                'end_time_seconds': round(last_frame / fps, 2),
             }],
             'reasoning': reasoning,
         }

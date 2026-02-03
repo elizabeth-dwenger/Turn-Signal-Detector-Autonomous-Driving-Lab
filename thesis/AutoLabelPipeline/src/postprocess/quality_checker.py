@@ -99,7 +99,7 @@ class QualityChecker:
             # Add to flagged list
             if flags:
                 report['flagged_frames'].append({
-                    'frame_index': i,
+                    'frame_id': pred.get('frame_id', i),
                     'label': pred['label'],
                     'confidence': pred['confidence'],
                     'flags': flags
@@ -113,9 +113,9 @@ class QualityChecker:
         
         for idx in sample_indices:
             # Check if already flagged
-            if not any(f['frame_index'] == idx for f in report['flagged_frames']):
+            if not any(f.get('frame_id') == predictions[idx].get('frame_id', idx) for f in report['flagged_frames']):
                 report['flagged_frames'].append({
-                    'frame_index': idx,
+                    'frame_id': predictions[idx].get('frame_id', idx),
                     'label': predictions[idx]['label'],
                     'confidence': predictions[idx]['confidence'],
                     'flags': ['random_sample']

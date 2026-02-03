@@ -335,3 +335,18 @@ def load_config(config_path: str, **overrides) -> PipelineConfig:
     Convenience function to load configuration.
     """
     return PipelineConfig(config_path, override_params=overrides if overrides else None)
+
+
+def set_random_seeds(seed: int):
+    """Set random seeds for reproducibility."""
+    import random
+    import numpy as np
+    random.seed(seed)
+    np.random.seed(seed)
+    try:
+        import torch
+        torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
+    except Exception:
+        pass
