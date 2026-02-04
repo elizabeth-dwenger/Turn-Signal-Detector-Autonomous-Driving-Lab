@@ -299,7 +299,6 @@ class PipelineConfig:
             self.output.visualization_output_dir = os.path.join(
                 self.experiment.output_dir, 'visualizations'
             )
-            Path(self.output.visualization_output_dir).mkdir(parents=True, exist_ok=True)
         
         # Ensure log file path is set
         if self.logging.log_file is None:
