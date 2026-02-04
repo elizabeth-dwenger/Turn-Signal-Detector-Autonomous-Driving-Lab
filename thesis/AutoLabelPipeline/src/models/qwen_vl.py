@@ -254,13 +254,16 @@ class QwenVLDetector(TurnSignalDetector):
         self.metrics['total_inferences'] += 1
         self.metrics['total_latency_ms'] += latency_ms
         
-        return {
+        result = {
             'label': parsed['label'],
             'confidence': parsed['confidence'],
             'reasoning': parsed.get('reasoning', ''),
             'raw_output': response,
             'latency_ms': latency_ms
         }
+        if 'segments' in parsed:
+            result['segments'] = parsed['segments']
+        return result
     
     def _predict_video_chunked(self, chunks: List[Tuple[np.ndarray, int, int]], 
                                start_time: float) -> Dict:

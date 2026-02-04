@@ -37,6 +37,93 @@ def setup_logging(log_file=None, verbose=False):
         handlers=handlers
     )
 
+def _normalize_label(label: str) -> str:
+    if label is None:
+        return "none"
+    label = str(label).strip().lower()
+    return label if label in {"left", "right", "both", "none"} else "none"
+
+def _compute_frame_metrics(y_true, y_pred, labels=None):
+    if labels is None:
+        labels = ["left", "right", "both", "none"]
+    results = {"per_class": {}, "macro_f1": 0.0, "accuracy": 0.0, "support": 0}
+    if not y_true:
+        return results
+    
+    total = len(y_true)
+    correct = sum(1 for t, p in zip(y_true, y_pred) if t == p)
+    results["accuracy"] = correct / total if total else 0.0
+    results["support"] = total
+    
+    f1s = []
+    for label in labels:
+        tp = sum(1 for t, p in zip(y_true, y_pred) if t == label and p == label)
+        fp = sum(1 for t, p in zip(y_true, y_pred) if t != label and p == label)
+        fn = sum(1 for t, p in zip(y_true, y_pred) if t == label and p != label)
+        precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+        recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+        f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) > 0 else 0.0
+        results["per_class"][label] = {
+            "precision": precision,
+            "recall": recall,
+            "f1": f1,
+            "support": sum(1 for t in y_true if t == label)
+        }
+        f1s.append(f1)
+    
+    results["macro_f1"] = sum(f1s) / len(f1s) if f1s else 0.0
+    return results
+
+def _extract_events(labels):
+    events = []
+    if not labels:
+        return events
+    current = labels[0]
+    start = 0
+    for i in range(1, len(labels)):
+        if labels[i] != current:
+            events.append({"label": current, "start": start, "end": i - 1})
+            current = labels[i]
+            start = i
+    events.append({"label": current, "start": start, "end": len(labels) - 1})
+    return [e for e in events if e["label"] != "none"]
+
+def _event_iou(a, b):
+    overlap_start = max(a["start"], b["start"])
+    overlap_end = min(a["end"], b["end"])
+    overlap = max(0, overlap_end - overlap_start + 1)
+    union = (a["end"] - a["start"] + 1) + (b["end"] - b["start"] + 1) - overlap
+    return overlap / union if union > 0 else 0.0
+
+def _compute_event_metrics(y_true_labels, y_pred_labels, fps: float,
+                           iou_threshold: float = 0.5, tolerance_seconds: float = 0.5):
+    tol_frames = max(1, int(round(tolerance_seconds * fps)))
+    gt_events = _extract_events(y_true_labels)
+    pred_events = _extract_events(y_pred_labels)
+    
+    matched_gt = set()
+    tp = 0
+    for pred in pred_events:
+        best_idx = None
+        for i, gt in enumerate(gt_events):
+            if i in matched_gt or gt["label"] != pred["label"]:
+                continue
+            iou = _event_iou(pred, gt)
+            close = (abs(pred["start"] - gt["start"]) <= tol_frames and
+                     abs(pred["end"] - gt["end"]) <= tol_frames)
+            if iou >= iou_threshold or close:
+                best_idx = i
+                break
+        if best_idx is not None:
+            matched_gt.add(best_idx)
+            tp += 1
+    fp = len(pred_events) - tp
+    fn = len(gt_events) - tp
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+    recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+    f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) > 0 else 0.0
+    return {"precision": precision, "recall": recall, "f1": f1, "tp": tp, "fp": fp, "fn": fn}
+
 
 def _get_frame_ids_for_video(sequence, preprocessor, use_crops: bool = True,
                              apply_max_length: bool = True,
@@ -357,12 +444,16 @@ def run_pipeline(config_path: str, verbose: bool = False):
                 # Reload images for this sequence
                 image_loader.load_sequence_images(seq, load_full_frames=False, show_progress=False)
                 
-                images = [f.crop_image for f in seq.frames if f.crop_image is not None]
+                frames_with_images = [f for f in seq.frames if f.crop_image is not None]
+                images = [f.crop_image for f in frames_with_images]
+                frame_ids = [f.frame_id for f in frames_with_images]
+                gt_labels = [f.true_label for f in frames_with_images] if seq.has_ground_truth else None
                 
                 viz_data[sequence_key] = {
                     'images': images,
+                    'frame_ids': frame_ids,
                     'predictions': result['predictions'],
-                    'ground_truth': [f.true_label for f in seq.frames] if seq.has_ground_truth else None
+                    'ground_truth': gt_labels
                 }
                 
                 # Clear after collecting
@@ -388,6 +479,104 @@ def run_pipeline(config_path: str, verbose: bool = False):
     
     report_path = output_generator.generate_report(dataset_stats, model_metrics)
     print(f"  Generated report: {report_path}")
+    
+    # Evaluation metrics vs ground truth (if available)
+    print("\n" + "-"*80)
+    print("STAGE 8: Evaluation Metrics (Ground Truth)")
+    print("-"*80)
+    
+    target_fps = config.model.model_kwargs.get('target_video_fps')
+    eval_fps = target_fps or config.data.video_fps
+    all_true = []
+    all_pred = []
+    event_tp = event_fp = event_fn = 0
+    per_sequence_rows = []
+    
+    seq_lookup = {f"{s.sequence_id}__track_{s.track_id}": s for s in dataset.sequences}
+    
+    for sequence_key, result in processed_results.items():
+        seq = seq_lookup.get(sequence_key)
+        if not seq or not seq.has_ground_truth:
+            continue
+        
+        pred_by_id = {p.get('frame_id'): _normalize_label(p.get('label', 'none'))
+                      for p in result.get('predictions', []) if p.get('frame_id') is not None}
+        
+        y_true = []
+        y_pred = []
+        for f in seq.frames:
+            if not f.has_ground_truth:
+                continue
+            if f.frame_id not in pred_by_id:
+                continue
+            y_true.append(_normalize_label(f.true_label))
+            y_pred.append(pred_by_id[f.frame_id])
+        
+        if not y_true:
+            continue
+        
+        all_true.extend(y_true)
+        all_pred.extend(y_pred)
+        ev = _compute_event_metrics(y_true, y_pred, eval_fps)
+        event_tp += ev["tp"]
+        event_fp += ev["fp"]
+        event_fn += ev["fn"]
+        
+        seq_frame_metrics = _compute_frame_metrics(y_true, y_pred)
+        per_sequence_rows.append({
+            "sequence_key": sequence_key,
+            "support": seq_frame_metrics["support"],
+            "frame_accuracy": seq_frame_metrics["accuracy"],
+            "frame_macro_f1": seq_frame_metrics["macro_f1"],
+            "event_f1": ev["f1"],
+            "event_precision": ev["precision"],
+            "event_recall": ev["recall"]
+        })
+    
+    if all_true:
+        frame_metrics = _compute_frame_metrics(all_true, all_pred)
+        precision = event_tp / (event_tp + event_fp) if (event_tp + event_fp) > 0 else 0.0
+        recall = event_tp / (event_tp + event_fn) if (event_tp + event_fn) > 0 else 0.0
+        event_f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) > 0 else 0.0
+        event_metrics = {
+            "precision": precision,
+            "recall": recall,
+            "f1": event_f1,
+            "tp": event_tp,
+            "fp": event_fp,
+            "fn": event_fn
+        }
+        
+        eval_summary = {
+            "frame_metrics": frame_metrics,
+            "event_metrics": event_metrics,
+            "num_sequences": len(per_sequence_rows),
+            "num_frames": frame_metrics.get("support", 0),
+            "fps": eval_fps
+        }
+        
+        # Save evaluation summary
+        import json
+        eval_path = Path(config.experiment.output_dir) / "evaluation_metrics.json"
+        with open(eval_path, "w") as f:
+            json.dump(eval_summary, f, indent=2)
+        print(f"  Saved evaluation metrics: {eval_path}")
+        
+        # Save per-sequence CSV
+        if per_sequence_rows:
+            import csv
+            per_seq_path = Path(config.experiment.output_dir) / "evaluation_per_sequence.csv"
+            with open(per_seq_path, "w", newline="") as f:
+                writer = csv.DictWriter(f, fieldnames=per_sequence_rows[0].keys())
+                writer.writeheader()
+                writer.writerows(per_sequence_rows)
+            print(f"  Saved per-sequence metrics: {per_seq_path}")
+        
+        print(f"  Frame Macro F1: {frame_metrics['macro_f1']:.3f}")
+        print(f"  Frame Accuracy: {frame_metrics['accuracy']:.3f}")
+        print(f"  Event F1: {event_metrics['f1']:.3f}")
+    else:
+        print("  No ground truth available for evaluation.")
     
     # Final summary
     print("\n" + "="*80)

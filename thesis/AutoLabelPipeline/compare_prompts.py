@@ -33,6 +33,23 @@ def _normalize_label(label: str) -> str:
     label = str(label).strip().lower()
     return label if label in {"left", "right", "both", "none"} else "none"
 
+def _get_frame_ids_for_video(sequence, preprocessor, use_crops: bool = True,
+                             apply_max_length: bool = True,
+                             source_fps: float = None,
+                             target_fps: float = None):
+    if use_crops:
+        frames = [f for f in sequence.frames if f.crop_image is not None]
+    else:
+        frames = [f for f in sequence.frames if f.full_image is not None]
+    frames = preprocessor._maybe_resample_frames(frames, source_fps, target_fps)
+    if preprocessor.stride > 1:
+        frames = frames[::preprocessor.stride]
+    if apply_max_length and preprocessor.max_length and len(frames) > preprocessor.max_length:
+        import numpy as np
+        indices = np.linspace(0, len(frames) - 1, preprocessor.max_length, dtype=int)
+        frames = [frames[i] for i in indices]
+    return [f.frame_id for f in frames]
+
 
 def _segments_to_frames(segment_prediction, frame_ids, fps: float):
     """
@@ -255,12 +272,30 @@ def test_prompt(config_path: str, prompt_file: str, test_sequences_file: str,
             effective_fps = target_fps or source_fps
             
             if config.model.inference_mode.value == 'video':
-                video, frame_ids = preprocessor.preprocess_for_video_with_ids(
-                    sequence,
-                    source_fps=source_fps,
-                    target_fps=target_fps
-                )
-                prediction = model.predict_video(video)
+                if (config.preprocessing.enable_chunking and
+                    loaded > config.preprocessing.chunk_size):
+                    frame_ids = _get_frame_ids_for_video(
+                        sequence,
+                        preprocessor,
+                        use_crops=True,
+                        apply_max_length=False,
+                        source_fps=source_fps,
+                        target_fps=target_fps
+                    )
+                    chunks = preprocessor.preprocess_for_video_chunked(
+                        sequence,
+                        chunk_size=config.preprocessing.chunk_size,
+                        source_fps=source_fps,
+                        target_fps=target_fps
+                    )
+                    prediction = model.predict_video(chunks=chunks)
+                else:
+                    video, frame_ids = preprocessor.preprocess_for_video_with_ids(
+                        sequence,
+                        source_fps=source_fps,
+                        target_fps=target_fps
+                    )
+                    prediction = model.predict_video(video)
                 predictions = [prediction]
                 
                 # Frame-level labels for metrics

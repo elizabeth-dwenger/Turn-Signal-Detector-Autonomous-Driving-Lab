@@ -15,13 +15,13 @@ logger = logging.getLogger(__name__)
 class PredictionVisualizer:
     """Create visualizations of predictions"""
     
-    # Color scheme
+    # Minimal color scheme (RGB format)
     COLORS = {
-        'none': (200, 200, 200),   # Gray
-        'left': (0, 255, 255),      # Yellow
-        'right': (255, 165, 0),     # Orange
-        'both': (0, 0, 255),        # Red
-        'flagged': (255, 0, 255)    # Magenta
+        'label_text': (240, 240, 240),  # Light gray (nearly white) - for frame labels
+        'title_text': (0, 0, 0),        # Black - for headers/titles
+        'match': (0, 255, 0),           # Green - for correct predictions
+        'mismatch': (255, 0, 0),        # Red - for incorrect predictions
+        'muted': (120, 120, 120),       # Gray
     }
     
     def __init__(self, output_config):
@@ -32,78 +32,83 @@ class PredictionVisualizer:
         self.config = output_config
         self.output_dir = Path(output_config.visualization_output_dir or 'visualizations')
         self.output_dir.mkdir(parents=True, exist_ok=True)
+
+    def _normalize_label(self, label: str) -> str:
+        if label is None:
+            return "none"
+        label = str(label).strip().lower()
+        return label if label in {"left", "right", "both", "none"} else "none"
+
+    def _compute_frame_metrics(self, y_true, y_pred, labels=None):
+        if labels is None:
+            labels = ["left", "right", "both", "none"]
+        if not y_true:
+            return {"accuracy": None, "macro_f1": None}
+        total = len(y_true)
+        correct = sum(1 for t, p in zip(y_true, y_pred) if t == p)
+        accuracy = correct / total if total else 0.0
+        f1s = []
+        for label in labels:
+            tp = sum(1 for t, p in zip(y_true, y_pred) if t == label and p == label)
+            fp = sum(1 for t, p in zip(y_true, y_pred) if t != label and p == label)
+            fn = sum(1 for t, p in zip(y_true, y_pred) if t == label and p != label)
+            precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+            recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+            f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) > 0 else 0.0
+            f1s.append(f1)
+        macro_f1 = sum(f1s) / len(f1s) if f1s else 0.0
+        return {"accuracy": accuracy, "macro_f1": macro_f1}
     
     def visualize_frame(self, image: np.ndarray, prediction: Dict,
                        ground_truth: str = None) -> np.ndarray:
         """
         Annotate a single frame with prediction.
+        Returns RGB image.
         """
-        # Convert to BGR for OpenCV
+        # Ensure image is uint8 RGB
         if image.dtype == np.float32 or image.dtype == np.float64:
             image = (image * 255).astype(np.uint8)
         
-        vis_image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR).copy()
+        # Work on a copy in RGB
+        if len(image.shape) == 2:  # Grayscale
+            vis_image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB).copy()
+        elif image.shape[2] == 4:  # RGBA
+            vis_image = cv2.cvtColor(image, cv2.COLOR_RGBA2RGB).copy()
+        else:  # Already RGB
+            vis_image = image.copy()
+        
         h, w = vis_image.shape[:2]
         
         # Get prediction info
         label = prediction['label']
         confidence = prediction['confidence']
-        flagged = prediction.get('flagged', False)
         
-        # Choose color
-        color = self.COLORS.get(label, (255, 255, 255))
-        if flagged:
-            color = self.COLORS['flagged']
+        font = cv2.FONT_HERSHEY_COMPLEX
         
-        # Draw label box
-        box_height = 80
-        cv2.rectangle(vis_image, (0, 0), (w, box_height), (0, 0, 0), -1)
+        # Convert to BGR for OpenCV text drawing, then back to RGB
+        bgr_temp = cv2.cvtColor(vis_image, cv2.COLOR_RGB2BGR)
         
-        # Draw label text
+        # Draw prediction text (top-left)
         label_text = f"Pred: {label.upper()}"
-        cv2.putText(vis_image, label_text, (10, 30),
-                   cv2.FONT_HERSHEY_SIMPLEX, 1.0, color, 2)
-        
-        # Draw confidence
+        cv2.putText(bgr_temp, label_text, (10, 25),
+                   font, 0.7, self.COLORS['label_text'][::-1], 2)  # Reverse RGB to BGR
         conf_text = f"Conf: {confidence:.2f}"
-        cv2.putText(vis_image, conf_text, (10, 60),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+        cv2.putText(bgr_temp, conf_text, (10, 45),
+                   font, 0.6, self.COLORS['label_text'][::-1], 2)
         
-        # Draw ground truth if available
+        # Draw ground truth below prediction (no overlap)
         if ground_truth:
             gt_text = f"GT: {ground_truth.upper()}"
-            match = "✓" if label == ground_truth else "✗"
-            gt_color = (0, 255, 0) if label == ground_truth else (0, 0, 255)
-            
-            cv2.putText(vis_image, f"{gt_text} {match}", (w - 250, 30),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.8, gt_color, 2)
+            color_key = 'match' if label == ground_truth else 'mismatch'
+            cv2.putText(bgr_temp, gt_text, (10, 65),
+                       font, 0.6, self.COLORS[color_key][::-1], 2)
         
-        # Draw flags if any
-        if flagged:
-            flags_text = f"FLAGGED"
-            cv2.putText(vis_image, flags_text, (w - 200, 60),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, self.COLORS['flagged'], 2)
-        
-        # Draw indicator arrow/box for signal
-        if label in ['left', 'right', 'both']:
-            self._draw_signal_indicator(vis_image, label, color)
-        
-        return cv2.cvtColor(vis_image, cv2.COLOR_BGR2RGB)
+        # Convert back to RGB for return
+        return cv2.cvtColor(bgr_temp, cv2.COLOR_BGR2RGB)
     
     def _draw_signal_indicator(self, image: np.ndarray, label: str, color: tuple):
-        """Draw arrow indicating signal direction"""
-        h, w = image.shape[:2]
-        arrow_y = h - 50
-        
-        if label == 'left' or label == 'both':
-            # Left arrow
-            cv2.arrowedLine(image, (w // 4, arrow_y), (50, arrow_y),
-                          color, thickness=5, tipLength=0.3)
-        
-        if label == 'right' or label == 'both':
-            # Right arrow
-            cv2.arrowedLine(image, (3 * w // 4, arrow_y), (w - 50, arrow_y),
-                          color, thickness=5, tipLength=0.3)
+        """Deprecated: kept for compatibility."""
+        return
     
     def visualize_sequence(self, images: List[np.ndarray],
                           predictions: List[Dict],
@@ -131,66 +136,120 @@ class PredictionVisualizer:
             gt = ground_truth[i] if ground_truth else None
             annotated = self.visualize_frame(image, pred, gt)
             
-            # Convert back to BGR for video writer
+            # Convert RGB to BGR for video writer
             bgr_frame = cv2.cvtColor(annotated, cv2.COLOR_RGB2BGR)
             writer.write(bgr_frame)
         
         writer.release()
         logger.info(f"Saved visualization video: {output_path}")
-    
-    def visualize_timeline(self, predictions: List[Dict],
-                          output_path: str,
-                          ground_truth: List[str] = None):
+
+    def _resize_with_padding(self, image: np.ndarray, target_w: int, target_h: int) -> np.ndarray:
+        """Resize image to fit target size with padding. Works with RGB images."""
+        h, w = image.shape[:2]
+        scale = min(target_w / w, target_h / h)
+        new_w = max(1, int(w * scale))
+        new_h = max(1, int(h * scale))
+        resized = cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_AREA)
+        canvas = np.full((target_h, target_w, 3), 255, dtype=resized.dtype)
+        y_off = (target_h - new_h) // 2
+        x_off = (target_w - new_w) // 2
+        canvas[y_off:y_off+new_h, x_off:x_off+new_w] = resized
+        return canvas
+
+    def create_contact_sheet(self, images: List[np.ndarray],
+                             frame_ids: List[int],
+                             predictions: List[Dict],
+                             output_path: Path,
+                             sequence_name: str,
+                             ground_truth: List[str] = None):
         """
-        Create timeline visualization showing predictions over time.
+        Create a single contact sheet containing all frames.
+        If a frame has no prediction, it will be left blank.
         """
-        import matplotlib
-        matplotlib.use('Agg')  # Non-interactive backend
-        import matplotlib.pyplot as plt
+        if not images:
+            logger.warning("No images to visualize")
+            return
+        output_path.parent.mkdir(parents=True, exist_ok=True)
         
-        # Create figure
-        fig, ax = plt.subplots(figsize=(16, 4))
+        num_frames = len(images)
+        if not frame_ids or len(frame_ids) != num_frames:
+            frame_ids = list(range(num_frames))
         
-        # Extract data
-        frames = [p.get('frame_id', i) for i, p in enumerate(predictions)]
-        labels = [p['label'] for p in predictions]
-        confidences = [p['confidence'] for p in predictions]
+        # Map predictions by frame_id for alignment
+        pred_by_id = {p.get('frame_id'): p for p in predictions if p.get('frame_id') is not None}
         
-        # Map labels to numbers
-        label_to_num = {'none': 0, 'left': 1, 'right': 2, 'both': 3}
-        label_nums = [label_to_num.get(l, 0) for l in labels]
+        # Compute per-sequence metrics if GT available
+        metrics_text = ""
+        if ground_truth and len(ground_truth) == num_frames:
+            y_true = []
+            y_pred = []
+            for fid, gt in zip(frame_ids, ground_truth):
+                if fid in pred_by_id:
+                    y_true.append(self._normalize_label(gt))
+                    y_pred.append(self._normalize_label(pred_by_id[fid].get('label', 'none')))
+            metrics = self._compute_frame_metrics(y_true, y_pred)
+            if metrics["accuracy"] is not None:
+                metrics_text = f"acc={metrics['accuracy']:.3f} | macroF1={metrics['macro_f1']:.3f}"
         
-        # Plot predictions
-        ax.plot(frames, label_nums, 'o-', label='Prediction',
-               color='blue', linewidth=2, markersize=4)
+        # Layout
+        cols = 6
+        rows = int(np.ceil(num_frames / cols))
+        tile_w = 224
+        tile_h = 224
+        header_h = 70
+        sheet_w = cols * tile_w
+        sheet_h = rows * tile_h + header_h
         
-        # Plot ground truth if available
-        if ground_truth:
-            gt_nums = [label_to_num.get(gt, 0) for gt in ground_truth]
-            ax.plot(frames, gt_nums, 's-', label='Ground Truth',
-                   color='green', linewidth=1, markersize=3, alpha=0.7)
+        # Build contact sheet in RGB
+        sheet = np.full((sheet_h, sheet_w, 3), 255, dtype=np.uint8)
         
-        # Plot confidence as background
-        ax2 = ax.twinx()
-        ax2.fill_between(frames, confidences, alpha=0.3, color='gray', label='Confidence')
-        ax2.set_ylabel('Confidence', fontsize=12)
-        ax2.set_ylim([0, 1])
+        # Convert to BGR temporarily for text drawing
+        sheet_bgr = cv2.cvtColor(sheet, cv2.COLOR_RGB2BGR)
         
-        # Formatting
-        ax.set_xlabel('Frame', fontsize=12)
-        ax.set_ylabel('Signal State', fontsize=12)
-        ax.set_yticks([0, 1, 2, 3])
-        ax.set_yticklabels(['None', 'Left', 'Right', 'Both'])
-        ax.set_title('Turn Signal Detection Timeline', fontsize=14, fontweight='bold')
-        ax.grid(True, alpha=0.3)
-        ax.legend(loc='upper left')
-        ax2.legend(loc='upper right')
+        header_text = f"{sequence_name} | frames={num_frames}"
+        metrics_line = metrics_text.strip()
+        cv2.putText(sheet_bgr, header_text, (10, 30),
+                    cv2.FONT_HERSHEY_COMPLEX, 0.7, self.COLORS['title_text'][::-1], 2)
+        if metrics_line:
+            cv2.putText(sheet_bgr, metrics_line, (10, 55),
+                        cv2.FONT_HERSHEY_COMPLEX, 0.6, self.COLORS['title_text'][::-1], 2)
         
-        plt.tight_layout()
-        plt.savefig(output_path, dpi=150, bbox_inches='tight')
-        plt.close()
+        # Convert back to RGB
+        sheet = cv2.cvtColor(sheet_bgr, cv2.COLOR_BGR2RGB)
         
-        logger.info(f"Saved timeline visualization: {output_path}")
+        for idx, (image, fid) in enumerate(zip(images, frame_ids)):
+            r = idx // cols
+            c = idx % cols
+            y0 = header_h + r * tile_h
+            x0 = c * tile_w
+            
+            if fid in pred_by_id:
+                pred = pred_by_id[fid]
+                gt = ground_truth[idx] if ground_truth and idx < len(ground_truth) else None
+                annotated = self.visualize_frame(image, pred, gt)  # Returns RGB
+                tile = self._resize_with_padding(annotated, tile_w, tile_h)
+            else:
+                # No prediction: show image with a subtle note
+                # Ensure image is RGB
+                if len(image.shape) == 2:
+                    annotated = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB).copy()
+                elif image.shape[2] == 4:
+                    annotated = cv2.cvtColor(image, cv2.COLOR_RGBA2RGB).copy()
+                else:
+                    annotated = image.copy()
+                
+                font = cv2.FONT_HERSHEY_COMPLEX
+                # Convert to BGR for text, then back to RGB
+                tmp = cv2.cvtColor(annotated, cv2.COLOR_RGB2BGR)
+                cv2.putText(tmp, "No pred", (10, 25),
+                            font, 0.6, self.COLORS['muted'][::-1], 1)
+                annotated = cv2.cvtColor(tmp, cv2.COLOR_BGR2RGB)
+                tile = self._resize_with_padding(annotated, tile_w, tile_h)
+            
+            sheet[y0:y0+tile_h, x0:x0+tile_w] = tile
+        
+        # Write with OpenCV (expects BGR)
+        cv2.imwrite(str(output_path), cv2.cvtColor(sheet, cv2.COLOR_RGB2BGR))
     
     def create_sample_visualizations(self, sequences_data: Dict,
                                     sample_rate: float = 0.01):
@@ -207,22 +266,15 @@ class PredictionVisualizer:
             try:
                 # Create safe filename
                 safe_id = sequence_id.replace('/', '_').replace('\\', '_')
-                
-                # Timeline visualization
-                timeline_path = self.output_dir / f"{safe_id}_timeline.png"
-                self.visualize_timeline(
-                    data['predictions'],
-                    str(timeline_path),
-                    data.get('ground_truth')
-                )
-                
-                # Video visualization (if images available)
                 if 'images' in data and data['images']:
-                    video_path = self.output_dir / f"{safe_id}_annotated.mp4"
-                    self.visualize_sequence(
+                    frame_ids = data.get('frame_ids', [])
+                    out_path = self.output_dir / f"{safe_id}_contact_sheet.png"
+                    self.create_contact_sheet(
                         data['images'],
+                        frame_ids,
                         data['predictions'],
-                        str(video_path),
+                        out_path,
+                        safe_id,
                         data.get('ground_truth')
                     )
             
