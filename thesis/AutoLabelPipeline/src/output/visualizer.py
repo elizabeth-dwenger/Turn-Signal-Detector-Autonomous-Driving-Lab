@@ -60,10 +60,16 @@ class PredictionVisualizer:
         return {"accuracy": accuracy, "macro_f1": macro_f1}
     
     def visualize_frame(self, image: np.ndarray, prediction: Dict,
-                       ground_truth: str = None) -> np.ndarray:
+                       ground_truth: str = None, draw_text: bool = True) -> np.ndarray:
         """
         Annotate a single frame with prediction.
         Returns RGB image.
+        
+        Args:
+            image: Input image in RGB format
+            prediction: Dict with 'label' and 'confidence'
+            ground_truth: Optional ground truth label
+            draw_text: If False, skip text drawing (text will be added later)
         """
         # Ensure image is uint8 RGB
         if image.dtype == np.float32 or image.dtype == np.float64:
@@ -76,6 +82,9 @@ class PredictionVisualizer:
             vis_image = cv2.cvtColor(image, cv2.COLOR_RGBA2RGB).copy()
         else:  # Already RGB
             vis_image = image.copy()
+        
+        if not draw_text:
+            return vis_image
         
         h, w = vis_image.shape[:2]
         
@@ -104,6 +113,38 @@ class PredictionVisualizer:
                        font, 0.6, self.COLORS[color_key][::-1], 2)
         
         # Convert back to RGB for return
+        return cv2.cvtColor(bgr_temp, cv2.COLOR_BGR2RGB)
+    
+    def _draw_text_on_image(self, image: np.ndarray, prediction: Dict, ground_truth: str = None) -> np.ndarray:
+        """
+        Draw text annotations on an image (assumes image is already properly sized).
+        This is a helper to draw text at consistent size after resizing.
+        """
+        # Get prediction info
+        label = prediction['label']
+        confidence = prediction['confidence']
+        
+        font = cv2.FONT_HERSHEY_COMPLEX
+        
+        # Convert to BGR for OpenCV text drawing
+        bgr_temp = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+        
+        # Draw prediction text (top-left)
+        label_text = f"Pred: {label.upper()}"
+        cv2.putText(bgr_temp, label_text, (10, 25),
+                   font, 0.7, self.COLORS['label_text'][::-1], 2)
+        conf_text = f"Conf: {confidence:.2f}"
+        cv2.putText(bgr_temp, conf_text, (10, 45),
+                   font, 0.6, self.COLORS['label_text'][::-1], 2)
+        
+        # Draw ground truth below prediction (no overlap)
+        if ground_truth:
+            gt_text = f"GT: {ground_truth.upper()}"
+            color_key = 'match' if label == ground_truth else 'mismatch'
+            cv2.putText(bgr_temp, gt_text, (10, 65),
+                       font, 0.6, self.COLORS[color_key][::-1], 2)
+        
+        # Convert back to RGB
         return cv2.cvtColor(bgr_temp, cv2.COLOR_BGR2RGB)
     
     def _draw_signal_indicator(self, image: np.ndarray, label: str, color: tuple):
@@ -226,8 +267,11 @@ class PredictionVisualizer:
             if fid in pred_by_id:
                 pred = pred_by_id[fid]
                 gt = ground_truth[idx] if ground_truth and idx < len(ground_truth) else None
-                annotated = self.visualize_frame(image, pred, gt)  # Returns RGB
-                tile = self._resize_with_padding(annotated, tile_w, tile_h)
+                # Resize first WITHOUT text
+                clean_image = self.visualize_frame(image, pred, gt, draw_text=False)
+                tile = self._resize_with_padding(clean_image, tile_w, tile_h)
+                # Draw text AFTER resizing to get consistent font size
+                tile = self._draw_text_on_image(tile, pred, gt)
             else:
                 # No prediction: show image with a subtle note
                 # Ensure image is RGB
@@ -238,13 +282,15 @@ class PredictionVisualizer:
                 else:
                     annotated = image.copy()
                 
+                # Resize first
+                tile = self._resize_with_padding(annotated, tile_w, tile_h)
+                
+                # Draw text AFTER resizing
                 font = cv2.FONT_HERSHEY_COMPLEX
-                # Convert to BGR for text, then back to RGB
-                tmp = cv2.cvtColor(annotated, cv2.COLOR_RGB2BGR)
+                tmp = cv2.cvtColor(tile, cv2.COLOR_RGB2BGR)
                 cv2.putText(tmp, "No pred", (10, 25),
                             font, 0.6, self.COLORS['muted'][::-1], 1)
-                annotated = cv2.cvtColor(tmp, cv2.COLOR_BGR2RGB)
-                tile = self._resize_with_padding(annotated, tile_w, tile_h)
+                tile = cv2.cvtColor(tmp, cv2.COLOR_BGR2RGB)
             
             sheet[y0:y0+tile_h, x0:x0+tile_w] = tile
         

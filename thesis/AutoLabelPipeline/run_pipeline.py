@@ -148,6 +148,12 @@ def _get_frame_ids_for_video(sequence, preprocessor, use_crops: bool = True,
     
     return [f.frame_id for f in frames]
 
+def _normalize_label(label: str) -> str:
+    if label is None:
+        return "none"
+    label = str(label).strip().lower()
+    return label if label in {"left", "right", "both", "none"} else "none"
+
 
 def _segments_to_frames(segment_prediction, frame_ids, fps: float):
     """
@@ -158,10 +164,11 @@ def _segments_to_frames(segment_prediction, frame_ids, fps: float):
     segments = segment_prediction.get('segments', [])
     
     if not segments:
+        label = _normalize_label(segment_prediction.get('label', 'none'))
         for frame_id in frame_ids:
             predictions.append({
                 'frame_id': frame_id,
-                'label': segment_prediction.get('label', 'none'),
+                'label': label,
                 'confidence': segment_prediction.get('confidence', 0.0),
                 'raw_output': segment_prediction.get('raw_output', ''),
                 'reasoning': segment_prediction.get('reasoning', '')
@@ -169,7 +176,7 @@ def _segments_to_frames(segment_prediction, frame_ids, fps: float):
         return predictions
     
     for seg in segments:
-        label = seg['label']
+        label = _normalize_label(seg.get('label', 'none'))
         start = seg.get('start_frame', 0)
         end = seg.get('end_frame', num_frames - 1)
         confidence = seg.get('confidence', 0.5)
