@@ -35,7 +35,7 @@ model:
   temperature: 0.0
   top_p: 1.0
   do_sample: false
-  prompt_template_path: "data/prompts/turn_signal_video.txt"
+  prompt_template_path: "data/prompts/turn_signal_video_4fps.txt"
   
   # Not using API - loading from HuggingFace
   api_key_env: null
@@ -46,9 +46,10 @@ model:
     trust_remote_code: true
     torch_dtype: "bfloat16"
     device_map: "auto"
+    target_video_fps: 4
 
 postprocessing:
-  temporal_smoothing_enabled: true
+  temporal_smoothing_enabled: false
   smoothing_method: "median"
   smoothing_window_size: 5
   confidence_threshold: 0.65

@@ -19,7 +19,7 @@ preprocessing:
   normalize: true
   maintain_aspect_ratio: true
   padding_color: [0, 0, 0]
-  max_sequence_length: 32
+  max_sequence_length: null
   sequence_stride: 1
 
 model:
@@ -32,7 +32,7 @@ model:
   temperature: 0.0
   top_p: 1.0
   do_sample: false
-  prompt_template_path: "data/prompts/turn_signal_video.txt"
+  prompt_template_path: "data/prompts/turn_signal_video_segments.txt"
   api_key_env: null
   api_endpoint: null
   api_rate_limit: null
@@ -42,7 +42,7 @@ model:
     torch_dtype: "bfloat16"
 
 postprocessing:
-  temporal_smoothing_enabled: true
+  temporal_smoothing_enabled: false
   smoothing_method: "median"
   smoothing_window_size: 7
   confidence_threshold: 0.6

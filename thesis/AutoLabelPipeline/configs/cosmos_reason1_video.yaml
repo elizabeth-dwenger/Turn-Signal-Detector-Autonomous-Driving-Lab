@@ -37,7 +37,7 @@ model:
   temperature: 0.0
   top_p: 1.0
   do_sample: false
-  prompt_template_path: "data/prompts/turn_signal_video_segments.txt"
+  prompt_template_path: "data/prompts/turn_signal_video_segments_4fps.txt"
   
   # Not using API - loading from HuggingFace
   api_key_env: null
@@ -48,6 +48,7 @@ model:
     trust_remote_code: true
     torch_dtype: "bfloat16"
     device_map: "auto"
+    target_video_fps: 4
     # Add any Cosmos-specific parameters here
 
 postprocessing:

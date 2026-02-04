@@ -38,12 +38,18 @@ def setup_logging(log_file=None, verbose=False):
     )
 
 
-def _get_frame_ids_for_video(sequence, preprocessor, use_crops: bool = True, apply_max_length: bool = True):
+def _get_frame_ids_for_video(sequence, preprocessor, use_crops: bool = True,
+                             apply_max_length: bool = True,
+                             source_fps: float = None,
+                             target_fps: float = None):
     """Get frame_ids used after stride/max_length filtering."""
     if use_crops:
         frames = [f for f in sequence.frames if f.crop_image is not None]
     else:
         frames = [f for f in sequence.frames if f.full_image is not None]
+
+    # Optional FPS resampling (match preprocessor behavior)
+    frames = preprocessor._maybe_resample_frames(frames, source_fps, target_fps)
     
     if preprocessor.stride > 1:
         frames = frames[::preprocessor.stride]
@@ -135,7 +141,8 @@ def run_pipeline(config_path: str, verbose: bool = False):
     
     config = load_config(config_path)
     set_random_seeds(config.experiment.random_seed)
-    config.model.model_kwargs['video_fps'] = config.data.video_fps
+    target_fps = config.model.model_kwargs.get('target_video_fps')
+    config.model.model_kwargs['video_fps'] = target_fps or config.data.video_fps
     print(f"\nConfiguration: {config_path}")
     print(f"  Experiment: {config.experiment.name}")
     print(f"  Model: {config.model.type.value}")
@@ -201,23 +208,44 @@ def run_pipeline(config_path: str, verbose: bool = False):
         try:
             # Preprocess and predict
             sequence_key = f"{sequence.sequence_id}__track_{sequence.track_id}"
-            frame_ids = _get_frame_ids_for_video(sequence, preprocessor, use_crops=True)
-            fps = config.data.video_fps
+            target_fps = config.model.model_kwargs.get('target_video_fps')
+            source_fps = config.data.video_fps
+            frame_ids = _get_frame_ids_for_video(
+                sequence,
+                preprocessor,
+                use_crops=True,
+                source_fps=source_fps,
+                target_fps=target_fps
+            )
+            fps = target_fps or source_fps
             
             if config.model.inference_mode.value == 'video':
                 if (config.preprocessing.enable_chunking and 
                     loaded_count > config.preprocessing.chunk_size):
                     print(f"    Sequence is long ({loaded_count} frames), using chunked inference...")
-                    frame_ids = _get_frame_ids_for_video(sequence, preprocessor, use_crops=True, apply_max_length=False)
+                    frame_ids = _get_frame_ids_for_video(
+                        sequence,
+                        preprocessor,
+                        use_crops=True,
+                        apply_max_length=False,
+                        source_fps=source_fps,
+                        target_fps=target_fps
+                    )
                     chunks = preprocessor.preprocess_for_video_chunked(
                         sequence,
-                        chunk_size=config.preprocessing.chunk_size
+                        chunk_size=config.preprocessing.chunk_size,
+                        source_fps=source_fps,
+                        target_fps=target_fps
                     )
                     print(f"    Split into {len(chunks)} chunks")
                     prediction = model.predict_video(chunks=chunks)
                     predictions = _segments_to_frames(prediction, frame_ids, fps)
                 else:
-                    video, frame_ids = preprocessor.preprocess_for_video_with_ids(sequence)
+                    video, frame_ids = preprocessor.preprocess_for_video_with_ids(
+                        sequence,
+                        source_fps=source_fps,
+                        target_fps=target_fps
+                    )
                     print(f"    Video shape: {video.shape}")
                     prediction = model.predict_video(video=video)
                     predictions = _segments_to_frames(prediction, frame_ids, fps)

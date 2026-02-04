@@ -139,19 +139,41 @@ class SequencePreprocessor:
         self.stride = config.sequence_stride
         self.max_length = config.max_sequence_length
         self.image_preprocessor = ImagePreprocessor(config)
+
+    def _maybe_resample_frames(self, frames: List[Frame], source_fps: Optional[float], target_fps: Optional[float]) -> List[Frame]:
+        """
+        Uniformly resample frames to approximate a target FPS.
+        Uses uniform index sampling to preserve temporal coverage.
+        """
+        if not frames:
+            return frames
+        if not source_fps or not target_fps or target_fps >= source_fps:
+            return frames
+        # Compute target length based on FPS ratio
+        target_len = max(1, int(round(len(frames) * (target_fps / source_fps))))
+        if target_len >= len(frames):
+            return frames
+        indices = np.linspace(0, len(frames) - 1, target_len, dtype=int)
+        return [frames[i] for i in indices]
     
-    def preprocess_for_video(self, sequence: Sequence, use_crops: bool = True) -> np.ndarray:
+    def preprocess_for_video(self, sequence: Sequence, use_crops: bool = True,
+                             source_fps: Optional[float] = None,
+                             target_fps: Optional[float] = None) -> np.ndarray:
         """
         Preprocess sequence and construct video tensor (T, H, W, C)
         """
         # Get images
         if use_crops:
-            images = [f.crop_image for f in sequence.frames if f.crop_image is not None]
+            frames = [f for f in sequence.frames if f.crop_image is not None]
         else:
-            images = [f.full_image for f in sequence.frames if f.full_image is not None]
-        
-        if not images:
+            frames = [f for f in sequence.frames if f.full_image is not None]
+
+        if not frames:
             raise ValueError(f"No images in sequence {sequence.sequence_id}")
+
+        # Optional FPS resampling
+        frames = self._maybe_resample_frames(frames, source_fps, target_fps)
+        images = [f.crop_image if use_crops else f.full_image for f in frames]
         
         # Apply stride (temporal subsampling)
         if self.stride > 1:
@@ -173,7 +195,9 @@ class SequencePreprocessor:
         
         return video
 
-    def preprocess_for_video_with_ids(self, sequence: Sequence, use_crops: bool = True) -> Tuple[np.ndarray, List[int]]:
+    def preprocess_for_video_with_ids(self, sequence: Sequence, use_crops: bool = True,
+                                       source_fps: Optional[float] = None,
+                                       target_fps: Optional[float] = None) -> Tuple[np.ndarray, List[int]]:
         """
         Preprocess sequence and return video tensor plus original frame_ids.
         """
@@ -185,6 +209,9 @@ class SequencePreprocessor:
         
         if not frames:
             raise ValueError(f"No images in sequence {sequence.sequence_id}")
+
+        # Optional FPS resampling
+        frames = self._maybe_resample_frames(frames, source_fps, target_fps)
         
         # Apply stride (temporal subsampling)
         if self.stride > 1:
@@ -281,7 +308,9 @@ class SequencePreprocessor:
 
     def preprocess_for_video_chunked(self, sequence: Sequence, 
                                      chunk_size: int = 50,
-                                     use_crops: bool = True) -> List[Tuple[np.ndarray, int, int]]:
+                                     use_crops: bool = True,
+                                     source_fps: Optional[float] = None,
+                                     target_fps: Optional[float] = None) -> List[Tuple[np.ndarray, int, int]]:
         """
         Preprocess sequence into fixed-size chunks for memory-efficient inference.
         """
@@ -293,6 +322,9 @@ class SequencePreprocessor:
         
         if not frames:
             raise ValueError(f"No images in sequence {sequence.sequence_id}")
+
+        # Optional FPS resampling
+        frames = self._maybe_resample_frames(frames, source_fps, target_fps)
         
         # Apply stride if needed
         if self.stride > 1:

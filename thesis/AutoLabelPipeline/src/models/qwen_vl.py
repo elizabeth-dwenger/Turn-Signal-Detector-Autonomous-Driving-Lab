@@ -9,6 +9,8 @@ from typing import List, Dict, Tuple, Optional
 import time
 import logging
 from PIL import Image
+import json
+import re
 
 from .base import TurnSignalDetector
 
@@ -65,6 +67,7 @@ class QwenVLDetector(TurnSignalDetector):
         model_load_kwargs = self.config.model_kwargs.copy()
         # Runtime-only args (not for from_pretrained)
         model_load_kwargs.pop('video_fps', None)
+        model_load_kwargs.pop('target_video_fps', None)
         
         # Convert torch_dtype to dtype (new API)
         if 'torch_dtype' in model_load_kwargs:
@@ -159,10 +162,70 @@ class QwenVLDetector(TurnSignalDetector):
             clean_up_tokenization_spaces=False
         )[0]
         
-        # Parse response
-        parsed = self._parse_response(response)
+        # Parse response (support segments if provided)
+        parsed = self._parse_response_qwen(response)
         
         return parsed, response
+
+    def _extract_json(self, text: str) -> Optional[Dict]:
+        """
+        Extract a JSON object from text.
+        """
+        if not text:
+            return None
+        match = re.search(r"\{.*\}", text, re.DOTALL)
+        if not match:
+            return None
+        json_str = match.group(0)
+        try:
+            return json.loads(json_str)
+        except json.JSONDecodeError:
+            return None
+
+    def _parse_response_qwen(self, response: str) -> Dict:
+        """
+        Parse Qwen response.
+        Supports both segment-based and single-label JSON outputs.
+        """
+        parsed_json = self._extract_json(response)
+        if isinstance(parsed_json, dict) and "segments" in parsed_json:
+            segments = []
+            for seg in parsed_json.get("segments", []):
+                if not isinstance(seg, dict):
+                    continue
+                label = str(seg.get("label", "none")).lower()
+                if label not in {"left", "right", "both", "none"}:
+                    label = "none"
+                try:
+                    start = int(seg.get("start_frame", 0))
+                except (ValueError, TypeError):
+                    start = 0
+                try:
+                    end = int(seg.get("end_frame", start))
+                except (ValueError, TypeError):
+                    end = start
+                try:
+                    conf = float(seg.get("confidence", 0.5))
+                except (ValueError, TypeError):
+                    conf = 0.5
+                conf = max(0.0, min(1.0, conf))
+                segments.append({
+                    "label": label,
+                    "start_frame": start,
+                    "end_frame": end,
+                    "confidence": conf
+                })
+            # Provide a fallback label/confidence for downstream use
+            primary = segments[0] if segments else {"label": "none", "confidence": 0.0}
+            return {
+                "segments": segments,
+                "label": primary.get("label", "none"),
+                "confidence": primary.get("confidence", 0.0),
+                "reasoning": parsed_json.get("reasoning", "")
+            }
+        
+        # Fallback: use base JSON parser (label/confidence)
+        return self._parse_response(response)
     
     def predict_video(self, video: np.ndarray = None, chunks: List[Tuple[np.ndarray, int, int]] = None) -> Dict:
         """

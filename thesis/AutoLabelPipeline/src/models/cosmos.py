@@ -48,6 +48,7 @@ class CosmosDetector(TurnSignalDetector):
         model_load_kwargs = self.config.model_kwargs.copy()
         # Runtime-only args (not for from_pretrained)
         model_load_kwargs.pop('video_fps', None)
+        model_load_kwargs.pop('target_video_fps', None)
 
         # Convert torch_dtype to dtype if needed
         if 'torch_dtype' in model_load_kwargs:

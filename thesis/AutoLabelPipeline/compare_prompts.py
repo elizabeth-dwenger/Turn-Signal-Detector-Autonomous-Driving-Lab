@@ -27,6 +27,166 @@ from data import (
 from models import load_model
 
 
+def _normalize_label(label: str) -> str:
+    if label is None:
+        return "none"
+    label = str(label).strip().lower()
+    return label if label in {"left", "right", "both", "none"} else "none"
+
+
+def _segments_to_frames(segment_prediction, frame_ids, fps: float):
+    """
+    Convert segment-based prediction to per-frame predictions aligned to frame_ids.
+    """
+    num_frames = len(frame_ids)
+    predictions = []
+    segments = segment_prediction.get('segments', [])
+    
+    if not segments:
+        label = _normalize_label(segment_prediction.get('label', 'none'))
+        for frame_id in frame_ids:
+            predictions.append({
+                'frame_id': frame_id,
+                'label': label,
+                'confidence': segment_prediction.get('confidence', 0.0),
+                'raw_output': segment_prediction.get('raw_output', ''),
+                'reasoning': segment_prediction.get('reasoning', '')
+            })
+        return predictions
+    
+    for seg in segments:
+        label = _normalize_label(seg.get('label', 'none'))
+        start = seg.get('start_frame', 0)
+        end = seg.get('end_frame', num_frames - 1)
+        confidence = seg.get('confidence', 0.5)
+        start = max(0, min(start, num_frames - 1))
+        end = max(0, min(end, num_frames - 1))
+        start_frame_id = frame_ids[start]
+        end_frame_id = frame_ids[end]
+        
+        for idx in range(start, end + 1):
+            predictions.append({
+                'frame_id': frame_ids[idx],
+                'label': label,
+                'confidence': confidence,
+                'start_frame': start_frame_id,
+                'end_frame': end_frame_id,
+                'start_time_seconds': round(start_frame_id / fps, 2),
+                'end_time_seconds': round(end_frame_id / fps, 2),
+                'raw_output': segment_prediction.get('raw_output', ''),
+                'reasoning': segment_prediction.get('reasoning', '')
+            })
+    
+    predictions.sort(key=lambda x: x['frame_id'])
+    seen = set()
+    unique_predictions = []
+    for pred in predictions:
+        if pred['frame_id'] not in seen:
+            unique_predictions.append(pred)
+            seen.add(pred['frame_id'])
+    
+    if len(unique_predictions) < num_frames:
+        pred_dict = {p['frame_id']: p for p in unique_predictions}
+        complete_predictions = []
+        for frame_id in frame_ids:
+            if frame_id in pred_dict:
+                complete_predictions.append(pred_dict[frame_id])
+            else:
+                complete_predictions.append({
+                    'frame_id': frame_id,
+                    'label': 'none',
+                    'confidence': 0.5,
+                    'reasoning': 'Gap filled'
+                })
+        return complete_predictions
+    
+    return unique_predictions
+
+
+def _compute_frame_metrics(y_true, y_pred, labels=None):
+    if labels is None:
+        labels = ["left", "right", "both", "none"]
+    results = {"per_class": {}, "macro_f1": 0.0, "accuracy": 0.0}
+    if not y_true:
+        return results
+    
+    total = len(y_true)
+    correct = sum(1 for t, p in zip(y_true, y_pred) if t == p)
+    results["accuracy"] = correct / total if total else 0.0
+    
+    f1s = []
+    for label in labels:
+        tp = sum(1 for t, p in zip(y_true, y_pred) if t == label and p == label)
+        fp = sum(1 for t, p in zip(y_true, y_pred) if t != label and p == label)
+        fn = sum(1 for t, p in zip(y_true, y_pred) if t == label and p != label)
+        precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+        recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+        f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) > 0 else 0.0
+        results["per_class"][label] = {
+            "precision": precision,
+            "recall": recall,
+            "f1": f1,
+            "support": sum(1 for t in y_true if t == label)
+        }
+        f1s.append(f1)
+    
+    results["macro_f1"] = sum(f1s) / len(f1s) if f1s else 0.0
+    return results
+
+
+def _extract_events(labels):
+    events = []
+    if not labels:
+        return events
+    current = labels[0]
+    start = 0
+    for i in range(1, len(labels)):
+        if labels[i] != current:
+            events.append({"label": current, "start": start, "end": i - 1})
+            current = labels[i]
+            start = i
+    events.append({"label": current, "start": start, "end": len(labels) - 1})
+    return [e for e in events if e["label"] != "none"]
+
+
+def _event_iou(a, b):
+    overlap_start = max(a["start"], b["start"])
+    overlap_end = min(a["end"], b["end"])
+    overlap = max(0, overlap_end - overlap_start + 1)
+    union = (a["end"] - a["start"] + 1) + (b["end"] - b["start"] + 1) - overlap
+    return overlap / union if union > 0 else 0.0
+
+
+def _compute_event_metrics(y_true_labels, y_pred_labels, fps: float,
+                           iou_threshold: float = 0.5, tolerance_seconds: float = 0.5):
+    tol_frames = max(1, int(round(tolerance_seconds * fps)))
+    gt_events = _extract_events(y_true_labels)
+    pred_events = _extract_events(y_pred_labels)
+    
+    matched_gt = set()
+    tp = 0
+    for pred in pred_events:
+        best_idx = None
+        for i, gt in enumerate(gt_events):
+            if i in matched_gt or gt["label"] != pred["label"]:
+                continue
+            iou = _event_iou(pred, gt)
+            close = (abs(pred["start"] - gt["start"]) <= tol_frames and
+                     abs(pred["end"] - gt["end"]) <= tol_frames)
+            if iou >= iou_threshold or close:
+                best_idx = i
+                break
+        if best_idx is not None:
+            matched_gt.add(best_idx)
+            tp += 1
+    fp = len(pred_events) - tp
+    fn = len(gt_events) - tp
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+    recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+    f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) > 0 else 0.0
+    return {"precision": precision, "recall": recall, "f1": f1, "tp": tp, "fp": fp, "fn": fn}
+
+
 def test_prompt(config_path: str, prompt_file: str, test_sequences_file: str,
                 output_dir: str = "prompt_comparison"):
     """
@@ -35,7 +195,8 @@ def test_prompt(config_path: str, prompt_file: str, test_sequences_file: str,
     # Load config
     config = load_config(config_path)
     set_random_seeds(config.experiment.random_seed)
-    config.model.model_kwargs['video_fps'] = config.data.video_fps
+    target_fps = config.model.model_kwargs.get('target_video_fps')
+    config.model.model_kwargs['video_fps'] = target_fps or config.data.video_fps
     
     # Load test sequence IDs
     with open(test_sequences_file, 'r') as f:
@@ -75,6 +236,9 @@ def test_prompt(config_path: str, prompt_file: str, test_sequences_file: str,
     
     # Run inference
     results = []
+    all_y_true = []
+    all_y_pred = []
+    event_metrics_accum = {"tp": 0, "fp": 0, "fn": 0}
     
     for sequence in tqdm(dataset.sequences, desc="Processing"):
         # Load images
@@ -86,17 +250,48 @@ def test_prompt(config_path: str, prompt_file: str, test_sequences_file: str,
         
         try:
             # Predict
+            target_fps = config.model.model_kwargs.get('target_video_fps')
+            source_fps = config.data.video_fps
+            effective_fps = target_fps or source_fps
+            
             if config.model.inference_mode.value == 'video':
-                video = preprocessor.preprocess_for_video(sequence)
+                video, frame_ids = preprocessor.preprocess_for_video_with_ids(
+                    sequence,
+                    source_fps=source_fps,
+                    target_fps=target_fps
+                )
                 prediction = model.predict_video(video)
                 predictions = [prediction]
+                
+                # Frame-level labels for metrics
+                frame_preds = _segments_to_frames(prediction, frame_ids, effective_fps)
+                if sequence.has_ground_truth:
+                    true_labels = [_normalize_label(f.true_label) for f in sequence.frames if f.crop_image is not None]
+                    # Align true labels to sampled frame_ids
+                    true_by_id = {f.frame_id: _normalize_label(f.true_label) for f in sequence.frames if f.crop_image is not None}
+                    y_true = [true_by_id.get(fid, "none") for fid in frame_ids]
+                    y_pred = [_normalize_label(p["label"]) for p in frame_preds]
+                    all_y_true.extend(y_true)
+                    all_y_pred.extend(y_pred)
+                    ev = _compute_event_metrics(y_true, y_pred, effective_fps)
+                    event_metrics_accum["tp"] += ev["tp"]
+                    event_metrics_accum["fp"] += ev["fp"]
+                    event_metrics_accum["fn"] += ev["fn"]
             else:
                 samples = preprocessor.preprocess_for_single_images(sequence)
                 images = [s[0] for s in samples]
                 predictions = model.predict_batch(images)
-            
-            # Store result
-            results.append({
+                
+                if sequence.has_ground_truth:
+                    frame_ids = [s[1] for s in samples]
+                    true_by_id = {f.frame_id: _normalize_label(f.true_label) for f in sequence.frames if f.crop_image is not None}
+                    y_true = [true_by_id.get(fid, "none") for fid in frame_ids]
+                    y_pred = [_normalize_label(p["label"]) for p in predictions]
+                    all_y_true.extend(y_true)
+                    all_y_pred.extend(y_pred)
+        
+        # Store result
+        results.append({
                 'sequence_id': sequence.sequence_id,
                 'num_frames': sequence.num_frames,
                 'ground_truth': sequence.ground_truth_label if sequence.has_ground_truth else None,
@@ -140,6 +335,18 @@ def test_prompt(config_path: str, prompt_file: str, test_sequences_file: str,
                     total += 1
             accuracy = correct / total if total > 0 else 0
     
+    # Compute additional metrics if ground truth exists
+    frame_metrics = _compute_frame_metrics(all_y_true, all_y_pred) if all_y_true else None
+    event_metrics = None
+    if event_metrics_accum["tp"] + event_metrics_accum["fp"] + event_metrics_accum["fn"] > 0:
+        tp = event_metrics_accum["tp"]
+        fp = event_metrics_accum["fp"]
+        fn = event_metrics_accum["fn"]
+        precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+        recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+        f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) > 0 else 0.0
+        event_metrics = {"precision": precision, "recall": recall, "f1": f1, "tp": tp, "fp": fp, "fn": fn}
+    
     # Save results
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -155,6 +362,8 @@ def test_prompt(config_path: str, prompt_file: str, test_sequences_file: str,
         'num_sequences': len(results),
         'accuracy': accuracy,
         'metrics': metrics,
+        'frame_metrics': frame_metrics,
+        'event_metrics': event_metrics,
         'results': results
     }
     
@@ -170,7 +379,9 @@ def test_prompt(config_path: str, prompt_file: str, test_sequences_file: str,
         'num_sequences': len(results),
         'accuracy': accuracy,
         'metrics': metrics,
-        'run_directory': str(run_output_dir)
+        'run_directory': str(run_output_dir),
+        'frame_metrics': frame_metrics,
+        'event_metrics': event_metrics
     }
     
     with open(summary_file, 'w') as f:
@@ -180,6 +391,11 @@ def test_prompt(config_path: str, prompt_file: str, test_sequences_file: str,
     print(f" Summary saved to {summary_file}")
     print(f"\nPerformance:")
     print(f"  Accuracy: {accuracy:.1%}" if accuracy else "  Accuracy: N/A (no ground truth)")
+    if frame_metrics:
+        print(f"  Frame Macro F1: {frame_metrics['macro_f1']:.3f}")
+        print(f"  Frame Accuracy: {frame_metrics['accuracy']:.3f}")
+    if event_metrics:
+        print(f"  Event F1: {event_metrics['f1']:.3f}")
     print(f"  Avg Latency: {metrics['avg_latency_ms']:.1f} ms")
     print(f"  Parse Success: {metrics['parse_success_rate']:.1%}")
     
@@ -210,6 +426,8 @@ def compare_prompts(comparison_dir: str):
             'Timestamp': data['timestamp'],
             'Sequences': data['num_sequences'],
             'Accuracy': f"{data['accuracy']:.1%}" if data['accuracy'] else "N/A",
+            'Frame Macro F1': f"{data.get('frame_metrics', {}).get('macro_f1', 0):.3f}" if data.get('frame_metrics') else "N/A",
+            'Event F1': f"{data.get('event_metrics', {}).get('f1', 0):.3f}" if data.get('event_metrics') else "N/A",
             'Avg Latency (ms)': f"{data['metrics']['avg_latency_ms']:.1f}",
             'Parse Success': f"{data['metrics']['parse_success_rate']:.1%}"
         })
