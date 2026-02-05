@@ -56,17 +56,6 @@ class TurnSignalDetector(ABC):
     def predict_video(self, video: np.ndarray) -> Dict:
         """
         Predict turn signal state from video sequence.
-        
-        Args:
-            video: Video tensor (T, H, W, C) in [0, 1] range
-        
-            {
-                'label': str,  # 'left', 'right', 'none', 'both'
-                'confidence': float,  # [0, 1]
-                'reasoning': str,  # Model's explanation (optional)
-                'raw_output': str,  # Raw model response
-                'latency_ms': float
-            }
         """
         pass
     
@@ -185,9 +174,6 @@ class TurnSignalDetector(ABC):
     def get_metrics(self) -> Dict:
         """
         Get performance metrics.
-        
-        Returns:
-            Dict of metrics
         """
         metrics = self.metrics.copy()
         

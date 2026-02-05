@@ -39,10 +39,6 @@ model:
   do_sample: false
   prompt_template_path: "data/prompts/turn_signal_video_segments_4fps.txt"
   
-  # Not using API - loading from HuggingFace
-  api_key_env: null
-  api_endpoint: null
-  api_rate_limit: null
   
   model_kwargs:
     trust_remote_code: true

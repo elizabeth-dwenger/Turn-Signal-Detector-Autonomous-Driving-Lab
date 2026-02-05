@@ -71,12 +71,6 @@ class ImagePreprocessor:
     def _resize_image(self, image: np.ndarray) -> np.ndarray:
         """
         Resize image to target size.
-        
-        Args:
-            image: Input image (H, W, C)
-        
-        Returns:
-            Resized image (target_H, target_W, C)
         """
         target_w, target_h = self.target_size
         
@@ -121,9 +115,6 @@ class ImagePreprocessor:
     def get_preprocessed_shape(self) -> Tuple[int, int, int]:
         """
         Get the shape of preprocessed images.
-        
-        Returns:
-            (H, W, C) tuple
         """
         return (self.target_size[1], self.target_size[0], 3)  # (height, width, channels)
 

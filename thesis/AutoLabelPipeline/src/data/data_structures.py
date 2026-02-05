@@ -136,7 +136,7 @@ class Sequence:
     
     @property
     def ground_truth_label(self) -> Optional[str]:
-        """Get most common ground truth label (if available)"""
+        """Get most common ground truth label"""
         if not self.has_ground_truth:
             return None
         

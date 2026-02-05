@@ -24,12 +24,6 @@ class ImageLoader:
     
     def __init__(self, crop_base_dir: str, frame_base_dir: Optional[str] = None,
                  num_workers: int = 4):
-        """
-        Args:
-            crop_base_dir: Base directory for crop images
-            frame_base_dir: Base directory for full frame images (optional)
-            num_workers: Number of parallel workers for loading
-        """
         self.crop_base_dir = Path(crop_base_dir)
         self.frame_base_dir = Path(frame_base_dir) if frame_base_dir else None
         self.num_workers = num_workers
@@ -159,8 +153,6 @@ class ImageLoader:
     def _load_image(self, path: Path) -> Optional[np.ndarray]:
         """
         Load a single image from disk.
-        
-        Returns: numpy array (H, W, 3) in RGB format, or None if loading fails
         """
         try:
             if not path.exists():
@@ -186,13 +178,6 @@ class ImageLoader:
     def preload_batch(self, frames: List[Frame], load_full_frames: bool = False) -> List[Frame]:
         """
         Preload a batch of frames (useful for batched inference).
-        
-        Args:
-            frames: List of Frame objects
-            load_full_frames: Whether to load full frames
-        
-        Returns:
-            List of frames with images loaded
         """
         for frame in frames:
             self.load_frame_images(frame, load_full_frames)

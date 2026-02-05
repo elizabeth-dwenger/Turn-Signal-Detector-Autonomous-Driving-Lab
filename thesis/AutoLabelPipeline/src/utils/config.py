@@ -94,11 +94,6 @@ class ModelConfig:
     # Model-specific settings (stored as dict for flexibility)
     model_kwargs: Dict[str, Any] = field(default_factory=dict)
     
-    # For API-based models (Cosmos via API)
-    api_key_env: Optional[str] = None  # Environment variable name for API key
-    api_endpoint: Optional[str] = None
-    api_rate_limit: Optional[int] = None  # Requests per minute
-    
     def __post_init__(self):
         # Validate prompt template exists
         if not os.path.exists(self.prompt_template_path):

@@ -64,12 +64,6 @@ class PredictionVisualizer:
         """
         Annotate a single frame with prediction.
         Returns RGB image.
-        
-        Args:
-            image: Input image in RGB format
-            prediction: Dict with 'label' and 'confidence'
-            ground_truth: Optional ground truth label
-            draw_text: If False, skip text drawing (text will be added later)
         """
         # Ensure image is uint8 RGB
         if image.dtype == np.float32 or image.dtype == np.float64:

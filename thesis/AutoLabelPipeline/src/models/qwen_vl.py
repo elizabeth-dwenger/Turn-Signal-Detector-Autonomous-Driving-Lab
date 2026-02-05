@@ -230,13 +230,6 @@ class QwenVLDetector(TurnSignalDetector):
     def predict_video(self, video: np.ndarray = None, chunks: List[Tuple[np.ndarray, int, int]] = None) -> Dict:
         """
         Predict from video sequence (multi-image input) or list of chunks.
-        
-        Args:
-            video: (T, H, W, C) in [0, 1] range for standard inference
-            chunks: List of (chunk_video, start_idx, end_idx) tuples for chunked inference
-        
-        Returns:
-            Prediction dict
         """
         start_time = time.time()
         

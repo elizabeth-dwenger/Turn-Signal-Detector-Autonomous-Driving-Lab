@@ -37,11 +37,6 @@ model:
   do_sample: false
   prompt_template_path: "data/prompts/turn_signal_video_segments_4fps.txt"
   
-  # Not using API - loading from HuggingFace
-  api_key_env: null
-  api_endpoint: null
-  api_rate_limit: null
-  
   model_kwargs:
     trust_remote_code: true
     torch_dtype: "bfloat16"
@@ -50,10 +45,10 @@ model:
 
 postprocessing:
   temporal_smoothing_enabled: false
-  smoothing_method: "median"
-  smoothing_window_size: 5
-  confidence_threshold: 0.65
-  min_signal_duration_frames: 3
+  # smoothing_method: "median"
+  # smoothing_window_size: 5
+  confidence_threshold: 0.3
+  min_signal_duration_frames: 1
   max_signal_duration_frames: null
   allow_both_signals: false
   single_image: null

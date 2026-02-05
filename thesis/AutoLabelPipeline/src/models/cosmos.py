@@ -92,10 +92,6 @@ class CosmosDetector(TurnSignalDetector):
     def predict_video(self, video: np.ndarray = None, chunks: List[Tuple[np.ndarray, int, int]] = None) -> Dict:
         """
         Predict from video sequence (T, H, W, C) or list of chunks.
-        
-        Args:
-            video: Full video tensor (T, H, W, C) for standard inference
-            chunks: List of (chunk_video, start_idx, end_idx) tuples for chunked inference
         """
         start_time = time.time()
         
@@ -606,7 +602,7 @@ class CosmosDetector(TurnSignalDetector):
         return segments[0] if segments else {'label': 'none', 'confidence': 0.0}
 
     # -------------------------------------------------------------------------
-    # Image helpers (unchanged)
+    # Image helpers
     # -------------------------------------------------------------------------
 
     def _video_to_pil_images(self, video: np.ndarray) -> List[Image.Image]:

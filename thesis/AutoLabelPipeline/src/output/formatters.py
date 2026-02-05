@@ -57,12 +57,6 @@ class JSONFormatter:
              metadata: Dict = None, include_raw_output: bool = False):
         """
         Save predictions to JSON file.
-        
-        Args:
-            predictions: List of prediction dicts
-            output_path: Output JSON file path
-            metadata: Additional metadata to include
-            include_raw_output: Whether to include raw model outputs
         """
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
         
@@ -99,11 +93,6 @@ class COCOFormatter:
              sequence_info: Dict = None):
         """
         Save predictions in COCO format.
-        
-        Args:
-            predictions: List of prediction dicts
-            output_path: Output JSON file path
-            sequence_info: Information about the sequence
         """
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
         
@@ -174,11 +163,6 @@ class SequenceFormatter:
                                 output_dir: str, format: str = 'json'):
         """
         Save predictions for multiple sequences.
-        
-        Args:
-            sequences_predictions: Dict mapping sequence_id to predictions
-            output_dir: Output directory
-            format: Output format ('json', 'csv', 'coco')
         """
         output_path = Path(output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
@@ -220,11 +204,6 @@ class ReviewQueueFormatter:
              sequence_id: str = None):
         """
         Save review queue (flagged frames).
-        
-        Args:
-            flagged_frames: List of flagged frame dicts
-            output_path: Output file path
-            sequence_id: Sequence identifier
         """
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
         

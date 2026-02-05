@@ -125,13 +125,6 @@ def _compute_event_metrics(y_true_labels, y_pred_labels, fps: float,
 def segments_to_frames(segment_prediction: Dict, frame_ids: List[int], fps: float) -> List[Dict]:
     """
     Convert segment-based prediction to per-frame predictions.
-    
-    Args:
-        segment_prediction: Prediction with 'segments' array from model
-        num_frames: Total number of frames in sequence
-    
-    Returns:
-        List of per-frame prediction dicts
     """
     frame_predictions = []
     num_frames = len(frame_ids)
@@ -373,7 +366,7 @@ def test_pipeline(config_path: str, num_sequences: int = 10,
     
     # Stage 5: Inference (process each sequence individually)
     print("\n" + "-"*80)
-    print("STAGE 5: Inference (Memory-Efficient)")
+    print("STAGE 5: Inference")
     print("-"*80)
     
     all_predictions = {}
@@ -636,7 +629,7 @@ def test_pipeline(config_path: str, num_sequences: int = 10,
     except Exception as e:
         print(f"   Warning: Failed to generate report: {e}")
 
-    # Evaluation metrics vs ground truth (if available)
+    # Evaluation metrics vs ground truth
     print("\n" + "-"*80)
     print("STAGE 8: Evaluation Metrics (Ground Truth)")
     print("-"*80)

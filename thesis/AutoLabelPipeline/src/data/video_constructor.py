@@ -18,10 +18,6 @@ class VideoConstructor:
     """
     
     def __init__(self, preprocessing_config):
-        """
-        Args:
-            preprocessing_config: PreprocessingConfig from configuration
-        """
         self.config = preprocessing_config
         self.max_length = preprocessing_config.max_sequence_length
         self.stride = preprocessing_config.sequence_stride
@@ -134,17 +130,10 @@ class FrameSampler:
     """
     
     def __init__(self, preprocessing_config):
-        """
-        Args:
-            preprocessing_config: PreprocessingConfig from configuration
-        """
         self.config = preprocessing_config
         self.stride = preprocessing_config.sequence_stride
     
     def sample_frames(self, sequence: Sequence, use_crops: bool = True) -> List[Tuple[np.ndarray, int]]:
-        """
-        Sample frames from sequence for single-image processing.
-        """
         # Get frames with images
         if use_crops:
             valid_frames = [f for f in sequence.frames if f.crop_image is not None]

@@ -106,11 +106,6 @@ class Postprocessor:
                      apply_quality_control: bool = True) -> Dict:
         """
         Post-process predictions for a sequence.
-        
-        Args:
-            predictions: Raw model predictions
-            actual_num_frames: True number of frames in sequence (for quality metrics)
-            apply_quality_control: Whether to apply QC flags
         """
         if not predictions:
             return {'predictions': [], 'quality_report': {}, 'stats': {}}

@@ -281,9 +281,6 @@ class EpisodeReconstructor:
     def _find_episodes(self, predictions: List[Dict], signal_label: str) -> List[tuple]:
         """
         Find episodes for a specific signal label.
-        
-        Returns:
-            List of (start_idx, end_idx) tuples
         """
         # Find high-confidence detections
         high_conf_frames = [

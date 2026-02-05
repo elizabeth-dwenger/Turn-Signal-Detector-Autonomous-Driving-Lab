@@ -34,12 +34,6 @@ class BatchBuilder:
     def batch_frames(self, frames: List[Frame]) -> Iterator[List[Frame]]:
         """
         Batch frames for single-image mode processing.
-        
-        Args:
-            frames: List of Frame objects
-        
-        Yields:
-            Batches of frames
         """
         for i in range(0, len(frames), self.batch_size):
             yield frames[i:i + self.batch_size]
@@ -77,9 +71,8 @@ class SequenceBatcher:
     
     def __init__(self, batch_size: int, max_sequence_length: Optional[int] = None):
         """
-        Args:
-            batch_size: Number of sequences per batch
-            max_sequence_length: Maximum sequence length (for padding)
+        batch_size: Number of sequences per batch
+        max_sequence_length: Maximum sequence length (for padding)
         """
         self.batch_size = batch_size
         self.max_length = max_sequence_length
@@ -89,14 +82,11 @@ class SequenceBatcher:
         """
         Batch video tensors with padding for different lengths.
         
-        Args:
-            videos: List of video tensors (each T, H, W, C) with potentially different T
-            pad_value: Value to use for padding
+        videos: List of video tensors (each T, H, W, C) with potentially different T
+        pad_value: Value to use for padding
         
-        Yields:
-            (batch_tensor, mask) where:
-              - batch_tensor: (B, max_T, H, W, C) padded videos
-              - mask: (B, max_T) boolean mask (True = valid frame, False = padding)
+        batch_tensor: (B, max_T, H, W, C) padded videos
+        mask: (B, max_T) boolean mask (True = valid frame, False = padding)
         """
         for i in range(0, len(videos), self.batch_size):
             batch_videos = videos[i:i + self.batch_size]
