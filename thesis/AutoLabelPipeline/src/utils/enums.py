@@ -29,7 +29,6 @@ class TurnSignalLabel(str, Enum):
 
 class SmoothingMethod(str, Enum):
     """Temporal smoothing algorithms"""
-    MEDIAN = "median"
     MODE = "mode"
     HMM = "hmm"
     THRESHOLD = "threshold"

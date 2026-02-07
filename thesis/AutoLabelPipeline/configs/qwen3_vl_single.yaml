@@ -36,7 +36,7 @@ model:
   temperature: 0.0
   top_p: 1.0
   do_sample: false
-  prompt_template_path: "data/prompts/turn_signal_single.txt"
+  prompt_template_path: "data/prompts/single_exp_03.txt"
   
   model_kwargs:
     trust_remote_code: true
@@ -44,7 +44,7 @@ model:
 
 postprocessing:
   temporal_smoothing_enabled: true
-  smoothing_method: "median"
+  smoothing_method: "mode"
   smoothing_window_size: 7
   confidence_threshold: 0.3
   min_signal_duration_frames: 3

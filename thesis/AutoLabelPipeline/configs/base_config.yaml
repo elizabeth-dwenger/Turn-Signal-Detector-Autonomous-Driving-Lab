@@ -19,7 +19,7 @@ preprocessing:
 
 postprocessing:
   temporal_smoothing_enabled: true
-  smoothing_method: "median"
+  smoothing_method: "mode"
   smoothing_window_size: 7
   confidence_threshold: 0.6
   min_signal_duration_frames: 3

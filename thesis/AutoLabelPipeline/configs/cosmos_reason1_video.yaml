@@ -37,7 +37,7 @@ model:
   temperature: 0.0
   top_p: 1.0
   do_sample: false
-  prompt_template_path: "data/prompts/turn_signal_video_segments_4fps.txt"
+  prompt_template_path: "data/prompts/cosmos_exp_03.txt"
   
   
   model_kwargs:
@@ -49,7 +49,7 @@ model:
 
 postprocessing:
   temporal_smoothing_enabled: false
-  #smoothing_method: "median"
+  #smoothing_method: "mode"
   #smoothing_window_size: 5  # Smaller window since model already does temporal reasoning
   confidence_threshold: 0.3
   min_signal_duration_frames: 1

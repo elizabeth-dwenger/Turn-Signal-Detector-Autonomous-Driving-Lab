@@ -2,7 +2,6 @@
 """
 Prompt Comparison Tool - Test multiple prompts on same sequences.
 
-Helps you:
 1. Compare different prompt formulations
 2. A/B test prompt changes
 3. Track prompt performance over iterations
@@ -223,7 +222,8 @@ def test_prompt(config_path: str, prompt_file: str, test_sequences_file: str,
     # Override config
     config.data.sequence_filter = sequence_ids
     config.data.max_sequences = None
-    config.model.prompt_template_path = prompt_file
+    if prompt_file:
+        config.model.prompt_template_path = prompt_file
     
     print(f"\nTesting prompt: {prompt_file}")
     print(f"Test sequences: {len(sequence_ids)}")
@@ -231,7 +231,7 @@ def test_prompt(config_path: str, prompt_file: str, test_sequences_file: str,
     # Create timestamped output directory
     from datetime import datetime
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    prompt_name = Path(prompt_file).stem
+    prompt_name = Path(prompt_file).stem if prompt_file else Path(config.model.prompt_template_path).stem
     model_name = config.model.type.value
     
     run_output_dir = Path(output_dir) / f"{model_name}_{prompt_name}_{timestamp}"
@@ -250,6 +250,8 @@ def test_prompt(config_path: str, prompt_file: str, test_sequences_file: str,
     # Load model
     print("Loading model...")
     model = load_model(config.model, warmup=True)
+    if prompt_file:
+        model.prompt = model._load_prompt(config.model.prompt_template_path)
     
     # Run inference
     results = []
@@ -270,6 +272,9 @@ def test_prompt(config_path: str, prompt_file: str, test_sequences_file: str,
             target_fps = config.model.model_kwargs.get('target_video_fps')
             source_fps = config.data.video_fps
             effective_fps = target_fps or source_fps
+            # For event metrics, account for temporal downsampling from stride.
+            stride = max(1, preprocessor.stride)
+            event_fps = effective_fps / stride
             
             if config.model.inference_mode.value == 'video':
                 if (config.preprocessing.enable_chunking and
@@ -301,14 +306,13 @@ def test_prompt(config_path: str, prompt_file: str, test_sequences_file: str,
                 # Frame-level labels for metrics
                 frame_preds = _segments_to_frames(prediction, frame_ids, effective_fps)
                 if sequence.has_ground_truth:
-                    true_labels = [_normalize_label(f.true_label) for f in sequence.frames if f.crop_image is not None]
                     # Align true labels to sampled frame_ids
                     true_by_id = {f.frame_id: _normalize_label(f.true_label) for f in sequence.frames if f.crop_image is not None}
                     y_true = [true_by_id.get(fid, "none") for fid in frame_ids]
                     y_pred = [_normalize_label(p["label"]) for p in frame_preds]
                     all_y_true.extend(y_true)
                     all_y_pred.extend(y_pred)
-                    ev = _compute_event_metrics(y_true, y_pred, effective_fps)
+                    ev = _compute_event_metrics(y_true, y_pred, event_fps)
                     event_metrics_accum["tp"] += ev["tp"]
                     event_metrics_accum["fp"] += ev["fp"]
                     event_metrics_accum["fn"] += ev["fn"]
@@ -325,8 +329,8 @@ def test_prompt(config_path: str, prompt_file: str, test_sequences_file: str,
                     all_y_true.extend(y_true)
                     all_y_pred.extend(y_pred)
         
-        # Store result
-        results.append({
+            # Store result
+            results.append({
                 'sequence_id': sequence.sequence_id,
                 'num_frames': sequence.num_frames,
                 'ground_truth': sequence.ground_truth_label if sequence.has_ground_truth else None,
@@ -390,7 +394,7 @@ def test_prompt(config_path: str, prompt_file: str, test_sequences_file: str,
     result_file = run_output_dir / "results.json"
     
     output = {
-        'prompt_file': prompt_file,
+        'prompt_file': prompt_file or config.model.prompt_template_path,
         'test_set': test_sequences_file,
         'timestamp': timestamp,
         'model': model_name,
@@ -408,7 +412,7 @@ def test_prompt(config_path: str, prompt_file: str, test_sequences_file: str,
     # Also save summary to main output_dir for easy comparison
     summary_file = output_path / f"{model_name}_{prompt_name}_{timestamp}_summary.json"
     summary = {
-        'prompt_file': prompt_file,
+        'prompt_file': prompt_file or config.model.prompt_template_path,
         'timestamp': timestamp,
         'model': model_name,
         'num_sequences': len(results),
@@ -476,6 +480,92 @@ def compare_prompts(comparison_dir: str):
     print(f"\n Comparison saved to {comparison_file}")
 
 
+def _parse_timestamp(ts: str) -> datetime:
+    try:
+        return datetime.strptime(ts, "%Y%m%d_%H%M%S")
+    except Exception:
+        return datetime.min
+
+
+def compare_prompts_all(root_dir: str):
+    """
+    Compare all prompt results under a root directory.
+    Produces a multi-index table (model, exp_id) with metrics as columns.
+    """
+    result_files = list(Path(root_dir).glob("**/*_summary.json"))
+    if not result_files:
+        print(f"No summary result files found under {root_dir}")
+        return
+
+    rows = []
+    for result_file in result_files:
+        with open(result_file, 'r') as f:
+            data = json.load(f)
+
+        model = data.get('model', 'unknown_model')
+        timestamp = data.get('timestamp', '')
+        parsed_ts = _parse_timestamp(timestamp)
+
+        rows.append({
+            "model": model,
+            "timestamp": timestamp,
+            "timestamp_dt": parsed_ts,
+            "sequences": data.get('num_sequences', 0),
+            "accuracy": data.get('accuracy', None),
+            "frame_macro_f1": data.get('frame_metrics', {}).get('macro_f1', None) if data.get('frame_metrics') else None,
+            "event_f1": data.get('event_metrics', {}).get('f1', None) if data.get('event_metrics') else None,
+            "avg_latency_ms": data.get('metrics', {}).get('avg_latency_ms', None) if data.get('metrics') else None,
+            "parse_success_rate": data.get('metrics', {}).get('parse_success_rate', None) if data.get('metrics') else None,
+        })
+
+    df = pd.DataFrame(rows)
+    if df.empty:
+        print("No usable data found in summary files.")
+        return
+
+    # Assign exp ids per model based on timestamp order (ascending)
+    df = df.sort_values(["model", "timestamp_dt", "timestamp"], ascending=[True, True, True])
+    df["exp_id"] = df.groupby("model").cumcount().map(lambda i: f"exp_{i}")
+
+    # Order models by best accuracy (desc), then order within model by accuracy (desc)
+    def _acc_value(val):
+        return val if isinstance(val, (int, float)) else -1.0
+
+    best_acc = df.groupby("model")["accuracy"].apply(lambda s: max((_acc_value(v) for v in s), default=-1.0))
+    model_order = best_acc.sort_values(ascending=False).index.tolist()
+
+    df["model_order"] = df["model"].apply(lambda m: model_order.index(m) if m in model_order else len(model_order))
+    df["accuracy_sort"] = df["accuracy"].apply(_acc_value)
+
+    df = df.sort_values(
+        ["model_order", "accuracy_sort", "timestamp_dt", "timestamp"],
+        ascending=[True, False, True, True]
+    )
+
+    # Build multi-index table
+    table = df.set_index(["model", "exp_id"])[
+        ["timestamp", "sequences", "accuracy", "frame_macro_f1", "event_f1", "avg_latency_ms", "parse_success_rate"]
+    ]
+
+    # Print a readable table
+    display_table = table.copy()
+    display_table = display_table.rename(columns={
+        "timestamp": "Timestamp",
+        "sequences": "Sequences",
+        "accuracy": "Accuracy",
+        "frame_macro_f1": "Frame Macro F1",
+        "event_f1": "Event F1",
+        "avg_latency_ms": "Avg Latency",
+        "parse_success_rate": "Parse Success",
+    })
+    print(display_table.to_string())
+
+    # Save CSV
+    output_path = Path(root_dir) / "comparison_summary_all.csv"
+    display_table.to_csv(output_path)
+    print(f"\n Comparison saved to {output_path}")
+
+
 def main():
     parser = argparse.ArgumentParser(description='Compare different prompts')
     
@@ -485,8 +575,8 @@ def main():
     test_parser = subparsers.add_parser('test', help='Test a prompt')
     test_parser.add_argument('--config', type=str, required=True,
                             help='Configuration file')
-    test_parser.add_argument('--prompt', type=str, required=True,
-                            help='Prompt file to test')
+    test_parser.add_argument('--prompt', type=str, required=False,
+                            help='Prompt file to test (optional; defaults to config)')
     test_parser.add_argument('--test-set', type=str, required=True,
                             help='Test sequences JSON file')
     test_parser.add_argument('--output-dir', type=str, default='prompt_comparison',
@@ -496,6 +586,10 @@ def main():
     compare_parser = subparsers.add_parser('compare', help='Compare prompt results')
     compare_parser.add_argument('--dir', type=str, required=True,
                                help='Directory with result files')
+
+    compare_all_parser = subparsers.add_parser('compare-all', help='Compare all prompt results under a root dir')
+    compare_all_parser.add_argument('--root', type=str, required=True,
+                                    help='Root directory containing summary files')
     
     args = parser.parse_args()
     
@@ -513,6 +607,9 @@ def main():
     
     elif args.command == 'compare':
         compare_prompts(args.dir)
+    
+    elif args.command == 'compare-all':
+        compare_prompts_all(args.root)
 
 
 if __name__ == '__main__':

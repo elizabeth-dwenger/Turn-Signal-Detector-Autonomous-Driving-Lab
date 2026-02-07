@@ -43,9 +43,7 @@ class TemporalSmoother:
             return predictions
         
         # Apply smoothing based on method
-        if self.method == SmoothingMethod.MEDIAN:
-            return self._median_filter(predictions)
-        elif self.method == SmoothingMethod.MODE:
+        if self.method == SmoothingMethod.MODE:
             return self._mode_filter(predictions)
         elif self.method == SmoothingMethod.HMM:
             return self._hmm_filter(predictions)
@@ -54,13 +52,6 @@ class TemporalSmoother:
         else:
             logger.warning(f"Unknown smoothing method: {self.method}")
             return predictions
-    
-    def _median_filter(self, predictions: List[Dict]) -> List[Dict]:
-        """
-        Apply median filter to labels.
-        For categorical data, this is effectively a mode filter.
-        """
-        return self._mode_filter(predictions)  # Median for categories = mode
     
     def _mode_filter(self, predictions: List[Dict]) -> List[Dict]:
         """

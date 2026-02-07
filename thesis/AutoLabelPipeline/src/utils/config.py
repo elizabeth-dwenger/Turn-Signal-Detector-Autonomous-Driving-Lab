@@ -94,6 +94,9 @@ class ModelConfig:
     # Model-specific settings (stored as dict for flexibility)
     model_kwargs: Dict[str, Any] = field(default_factory=dict)
     
+    # Optional API key environment variable name
+    api_key_env: Optional[str] = None
+    
     def __post_init__(self):
         # Validate prompt template exists
         if not os.path.exists(self.prompt_template_path):
@@ -127,7 +130,7 @@ class PostprocessingConfig:
     """Post-processing configuration"""
     # Temporal smoothing
     temporal_smoothing_enabled: bool = True
-    smoothing_method: SmoothingMethod = SmoothingMethod.MEDIAN
+    smoothing_method: SmoothingMethod = SmoothingMethod.MODE
     smoothing_window_size: int = 7
     
     # Confidence filtering
