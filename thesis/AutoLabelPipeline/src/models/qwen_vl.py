@@ -194,7 +194,9 @@ class QwenVLDetector(TurnSignalDetector):
                 if not isinstance(seg, dict):
                     continue
                 label = str(seg.get("label", "none")).lower()
-                if label not in {"left", "right", "both", "none"}:
+                if label == "both":
+                    label = "hazard"
+                if label not in {"left", "right", "both", "none", "hazard"}:
                     label = "none"
                 try:
                     start = int(seg.get("start_frame", 0))
@@ -204,27 +206,20 @@ class QwenVLDetector(TurnSignalDetector):
                     end = int(seg.get("end_frame", start))
                 except (ValueError, TypeError):
                     end = start
-                try:
-                    conf = float(seg.get("confidence", 0.5))
-                except (ValueError, TypeError):
-                    conf = 0.5
-                conf = max(0.0, min(1.0, conf))
                 segments.append({
                     "label": label,
                     "start_frame": start,
-                    "end_frame": end,
-                    "confidence": conf
+                    "end_frame": end
                 })
-            # Provide a fallback label/confidence for downstream use
-            primary = segments[0] if segments else {"label": "none", "confidence": 0.0}
+            # Provide a fallback label for downstream use
+            primary = segments[0] if segments else {"label": "none"}
             return {
                 "segments": segments,
                 "label": primary.get("label", "none"),
-                "confidence": primary.get("confidence", 0.0),
                 "reasoning": parsed_json.get("reasoning", "")
             }
         
-        # Fallback: use base JSON parser (label/confidence)
+        # Fallback: use base JSON parser (label)
         return self._parse_response(response)
     
     def predict_video(self, video: np.ndarray = None, chunks: List[Tuple[np.ndarray, int, int]] = None) -> Dict:
@@ -249,7 +244,6 @@ class QwenVLDetector(TurnSignalDetector):
         
         result = {
             'label': parsed['label'],
-            'confidence': parsed['confidence'],
             'reasoning': parsed.get('reasoning', ''),
             'raw_output': response,
             'latency_ms': latency_ms
@@ -291,7 +285,6 @@ class QwenVLDetector(TurnSignalDetector):
                         'label': parsed.get('label', 'none'),
                         'start_frame': start_idx,
                         'end_frame': end_idx,
-                        'confidence': parsed.get('confidence', 0.5),
                         'start_time_seconds': round(start_idx / fps, 2),
                         'end_time_seconds': round(end_idx / fps, 2)
                     })
@@ -303,7 +296,6 @@ class QwenVLDetector(TurnSignalDetector):
                     'label': 'none',
                     'start_frame': start_idx,
                     'end_frame': end_idx,
-                    'confidence': 0.0,
                     'start_time_seconds': round(start_idx / fps, 2),
                     'end_time_seconds': round(end_idx / fps, 2)
                 })
@@ -320,7 +312,6 @@ class QwenVLDetector(TurnSignalDetector):
             'reasoning': f'Chunked inference across {len(chunks)} windows',
             'latency_ms': latency_ms,
             'label': merged_segments[0]['label'] if merged_segments else 'none',
-            'confidence': max((s['confidence'] for s in merged_segments), default=0.0),
             'raw_output': f'Processed {len(chunks)} chunks',
         }
     
@@ -331,7 +322,6 @@ class QwenVLDetector(TurnSignalDetector):
                 'label': 'none',
                 'start_frame': 0,
                 'end_frame': total_frames - 1,
-                'confidence': 0.5,
                 'start_time_seconds': 0.0,
                 'end_time_seconds': round((total_frames - 1) / self.config.model_kwargs.get('video_fps', 10.0), 2)
             }]
@@ -347,7 +337,6 @@ class QwenVLDetector(TurnSignalDetector):
                 seg['start_frame'] <= last['end_frame'] + 1):
                 last['end_frame'] = max(last['end_frame'], seg['end_frame'])
                 last['end_time_seconds'] = round(last['end_frame'] / self.config.model_kwargs.get('video_fps', 10.0), 2)
-                last['confidence'] = max(last['confidence'], seg['confidence'])
             else:
                 merged.append(seg.copy())
         
@@ -419,7 +408,6 @@ class QwenVLDetector(TurnSignalDetector):
         
         return {
             'label': parsed['label'],
-            'confidence': parsed['confidence'],
             'reasoning': parsed.get('reasoning', ''),
             'raw_output': response,
             'latency_ms': latency_ms

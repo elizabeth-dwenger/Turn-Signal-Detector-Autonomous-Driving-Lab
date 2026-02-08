@@ -3,7 +3,6 @@ Post-processing orchestrator.
 Coordinates temporal smoothing, quality control, and constraint enforcement.
 """
 import logging
-import numpy as np
 from typing import List, Dict, Tuple
 
 from .temporal_smoother import TemporalSmoother, EpisodeReconstructor
@@ -65,19 +64,6 @@ class Postprocessor:
                 reasons[reason] += 1
         return dict(reasons)
 
-    def _compute_confidence_stats(self, predictions: List[Dict]) -> Dict:
-        """Compute confidence statistics"""
-        if not predictions:
-            return {}
-        
-        confidences = [p['confidence'] for p in predictions]
-        return {
-            'mean': np.mean(confidences),
-            'median': np.median(confidences),
-            'std': np.std(confidences),
-            'min': np.min(confidences),
-            'max': np.max(confidences),
-        }
 
     def _compute_label_distribution(self, predictions: List[Dict], actual_num_frames: int) -> Dict[str, int]:
         """Compute distribution of labels across all frames"""
@@ -132,7 +118,6 @@ class Postprocessor:
             'total_frames': actual_num_frames, 
             'flagged_frames': flagged,
             'flag_reasons': self._count_flag_reasons(flagged),
-            'confidence_stats': self._compute_confidence_stats(predictions),
             'label_distribution': self._compute_label_distribution(predictions, actual_num_frames),
             'total_flagged': len(flagged),
             'flag_rate': len(flagged) / actual_num_frames if actual_num_frames > 0 else 0,

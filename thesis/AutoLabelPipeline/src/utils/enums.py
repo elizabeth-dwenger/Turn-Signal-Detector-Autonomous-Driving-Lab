@@ -24,7 +24,7 @@ class TurnSignalLabel(str, Enum):
     LEFT = "left"
     RIGHT = "right"
     BOTH = "both"
-    UNCERTAIN = "uncertain"  # For low-confidence predictions
+    HAZARD = "hazard"
 
 
 class SmoothingMethod(str, Enum):

@@ -37,11 +37,13 @@ class PredictionVisualizer:
         if label is None:
             return "none"
         label = str(label).strip().lower()
-        return label if label in {"left", "right", "both", "none"} else "none"
+        if label == "both":
+            label = "hazard"
+        return label if label in {"left", "right", "hazard", "none"} else "none"
 
     def _compute_frame_metrics(self, y_true, y_pred, labels=None):
         if labels is None:
-            labels = ["left", "right", "both", "none"]
+            labels = ["left", "right", "hazard", "none"]
         if not y_true:
             return {"accuracy": None, "macro_f1": None}
         total = len(y_true)
@@ -84,7 +86,6 @@ class PredictionVisualizer:
         
         # Get prediction info
         label = prediction['label']
-        confidence = prediction['confidence']
         
         font = cv2.FONT_HERSHEY_COMPLEX
         
@@ -95,15 +96,11 @@ class PredictionVisualizer:
         label_text = f"Pred: {label.upper()}"
         cv2.putText(bgr_temp, label_text, (10, 25),
                    font, 0.7, self.COLORS['label_text'][::-1], 2)  # Reverse RGB to BGR
-        conf_text = f"Conf: {confidence:.2f}"
-        cv2.putText(bgr_temp, conf_text, (10, 45),
-                   font, 0.6, self.COLORS['label_text'][::-1], 2)
-        
         # Draw ground truth below prediction (no overlap)
         if ground_truth:
             gt_text = f"GT: {ground_truth.upper()}"
             color_key = 'match' if label == ground_truth else 'mismatch'
-            cv2.putText(bgr_temp, gt_text, (10, 65),
+            cv2.putText(bgr_temp, gt_text, (10, 45),
                        font, 0.6, self.COLORS[color_key][::-1], 2)
         
         # Convert back to RGB for return
@@ -116,7 +113,6 @@ class PredictionVisualizer:
         """
         # Get prediction info
         label = prediction['label']
-        confidence = prediction['confidence']
         
         font = cv2.FONT_HERSHEY_COMPLEX
         
@@ -127,15 +123,11 @@ class PredictionVisualizer:
         label_text = f"Pred: {label.upper()}"
         cv2.putText(bgr_temp, label_text, (10, 25),
                    font, 0.7, self.COLORS['label_text'][::-1], 2)
-        conf_text = f"Conf: {confidence:.2f}"
-        cv2.putText(bgr_temp, conf_text, (10, 45),
-                   font, 0.6, self.COLORS['label_text'][::-1], 2)
-        
         # Draw ground truth below prediction (no overlap)
         if ground_truth:
             gt_text = f"GT: {ground_truth.upper()}"
             color_key = 'match' if label == ground_truth else 'mismatch'
-            cv2.putText(bgr_temp, gt_text, (10, 65),
+            cv2.putText(bgr_temp, gt_text, (10, 45),
                        font, 0.6, self.COLORS[color_key][::-1], 2)
         
         # Convert back to RGB

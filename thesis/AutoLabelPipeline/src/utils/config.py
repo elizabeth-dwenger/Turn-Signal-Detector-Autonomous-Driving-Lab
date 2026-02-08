@@ -117,10 +117,6 @@ class SingleImageConfig:
     min_signal_duration_frames: int = 3  # Min consecutive frames for valid signal
     max_gap_frames: int = 2  # Max frames of 'none' within a signal episode
     
-    # Episode detection
-    confidence_threshold_start: float = 0.7  # Confidence to START an episode
-    confidence_threshold_continue: float = 0.5  # Confidence to CONTINUE an episode
-    
     # Interpolation
     interpolate_gaps: bool = True  # Fill gaps within episodes
 
@@ -133,13 +129,9 @@ class PostprocessingConfig:
     smoothing_method: SmoothingMethod = SmoothingMethod.MODE
     smoothing_window_size: int = 7
     
-    # Confidence filtering
-    confidence_threshold: float = 0.6
-    
     # Physical constraints
     min_signal_duration_frames: int = 3
     max_signal_duration_frames: Optional[int] = None  # None = no limit
-    allow_both_signals: bool = False  # Flag 'both' as anomaly if False
     
     # For single-image mode
     single_image: Optional[SingleImageConfig] = None
@@ -152,9 +144,6 @@ class PostprocessingConfig:
 @dataclass
 class QualityControlConfig:
     """Quality control and review flagging"""
-    flag_low_confidence: bool = True
-    low_confidence_threshold: float = 0.4
-    
     # Random sampling for manual review
     random_sample_rate: float = 0.05  # 5%
     stratified_sampling: bool = True  # Equal samples per class
@@ -169,8 +158,6 @@ class QualityControlConfig:
 class OutputConfig:
     """Output generation configuration"""
     formats: List[OutputFormat] = field(default_factory=lambda: [OutputFormat.CSV, OutputFormat.JSON])
-    
-    include_confidence: bool = True
     include_raw_output: bool = False  # Save model's raw text response
     
     # Visualization

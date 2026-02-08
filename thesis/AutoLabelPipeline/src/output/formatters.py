@@ -17,7 +17,7 @@ class CSVFormatter:
     """Format predictions as CSV file"""
     
     @staticmethod
-    def save(predictions: List[Dict], output_path: str, include_confidence: bool = True):
+    def save(predictions: List[Dict], output_path: str):
         """
         Save predictions to CSV file.
         """
@@ -25,9 +25,6 @@ class CSVFormatter:
         
         # Define columns
         fieldnames = ['frame_id', 'label']
-        
-        if include_confidence:
-            fieldnames.append('confidence')
         
         # Add optional fields if present
         if predictions and 'original_label' in predictions[0]:
@@ -111,7 +108,7 @@ class COCOFormatter:
                 {'id': 0, 'name': 'none'},
                 {'id': 1, 'name': 'left'},
                 {'id': 2, 'name': 'right'},
-                {'id': 3, 'name': 'both'}
+                {'id': 3, 'name': 'hazard'}
             ]
         }
         
@@ -120,7 +117,7 @@ class COCOFormatter:
             coco_output['info'].update(sequence_info)
         
         # Category mapping
-        category_map = {'none': 0, 'left': 1, 'right': 2, 'both': 3}
+        category_map = {'none': 0, 'left': 1, 'right': 2, 'hazard': 3, 'both': 3}
         
         # Create images and annotations
         for i, pred in enumerate(predictions):
@@ -140,7 +137,6 @@ class COCOFormatter:
                 'id': i,
                 'image_id': frame_id,
                 'category_id': category_map.get(pred['label'], 0),
-                'score': pred.get('confidence', 1.0),
                 'attributes': {
                     'smoothed': pred.get('smoothed', False),
                     'flagged': pred.get('flagged', False)

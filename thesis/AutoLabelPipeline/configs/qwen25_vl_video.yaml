@@ -35,7 +35,7 @@ model:
   temperature: 0.0
   top_p: 1.0
   do_sample: false
-  prompt_template_path: "data/prompts/video_exp_03.txt"
+  prompt_template_path: "data/prompts/video_exp_07.txt"
 
   model_kwargs:
     trust_remote_code: true
@@ -45,15 +45,11 @@ postprocessing:
   temporal_smoothing_enabled: false
   smoothing_method: "mode"
   smoothing_window_size: 7
-  confidence_threshold: 0.3
   min_signal_duration_frames: 3
   max_signal_duration_frames: null
-  allow_both_signals: false
   single_image: null
 
 quality_control:
-  flag_low_confidence: true
-  low_confidence_threshold: 0.45
   random_sample_rate: 0.05
   stratified_sampling: true
   flag_both_signals: true
@@ -62,7 +58,6 @@ quality_control:
 
 output:
   formats: ["csv", "json"]
-  include_confidence: true
   include_raw_output: false
   save_visualizations: true
   visualization_sample_rate: 0.01

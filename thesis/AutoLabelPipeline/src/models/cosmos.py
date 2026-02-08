@@ -161,7 +161,6 @@ class CosmosDetector(TurnSignalDetector):
                     'label': 'none',
                     'start_frame': start_idx,
                     'end_frame': end_idx,
-                    'confidence': 0.0,
                     'start_time_seconds': round(start_idx / fps, 2),
                     'end_time_seconds': round(end_idx / fps, 2)
                 })
@@ -178,7 +177,6 @@ class CosmosDetector(TurnSignalDetector):
             'reasoning': f'Chunked inference across {len(chunks)} windows',
             'latency_ms': latency_ms,
             'label': merged_segments[0]['label'] if merged_segments else 'none',
-            'confidence': max((s['confidence'] for s in merged_segments), default=0.0),
             'raw_output': f'Processed {len(chunks)} chunks',
         }
     
@@ -189,7 +187,6 @@ class CosmosDetector(TurnSignalDetector):
                 'label': 'none',
                 'start_frame': 0,
                 'end_frame': total_frames - 1,
-                'confidence': 0.5,
                 'start_time_seconds': 0.0,
                 'end_time_seconds': round((total_frames - 1) / self.config.model_kwargs.get('video_fps', 10.0), 2)
             }]
@@ -205,7 +202,6 @@ class CosmosDetector(TurnSignalDetector):
                 seg['start_frame'] <= last['end_frame'] + 1):
                 last['end_frame'] = max(last['end_frame'], seg['end_frame'])
                 last['end_time_seconds'] = round(last['end_frame'] / self.config.model_kwargs.get('video_fps', 10.0), 2)
-                last['confidence'] = max(last['confidence'], seg['confidence'])
             else:
                 merged.append(seg.copy())
         
@@ -299,7 +295,6 @@ class CosmosDetector(TurnSignalDetector):
         # only looks at 'label' still works.
         primary = self._get_primary_segment(parsed.get('segments', []))
         result['label'] = primary.get('label', 'none')
-        result['confidence'] = primary.get('confidence', 0.0)
         result['start_frame'] = primary.get('start_frame')
         result['end_frame'] = primary.get('end_frame')
         result['start_time_seconds'] = primary.get('start_time_seconds')
@@ -408,18 +403,17 @@ class CosmosDetector(TurnSignalDetector):
         if not raw_segments:
             return self._make_none_segments(num_frames)['segments']
 
-        valid_labels = {'left', 'right', 'none', 'both'}
+        valid_labels = {'left', 'right', 'none', 'both', 'hazard'}
         last_frame = num_frames - 1
         fps = self.config.model_kwargs.get('video_fps', 10.0)
         cleaned = []
 
         for seg in raw_segments:
             label = str(seg.get('label', 'none')).lower().strip()
+            if label == 'both':
+                label = 'hazard'
             if label not in valid_labels:
                 label = 'none'
-
-            confidence = float(seg.get('confidence', 0.5))
-            confidence = max(0.0, min(1.0, confidence))
 
             start = seg.get('start_frame')
             end = seg.get('end_frame')
@@ -438,7 +432,6 @@ class CosmosDetector(TurnSignalDetector):
                 'label': label,
                 'start_frame': start,
                 'end_frame': end,
-                'confidence': confidence,
             })
 
         # --- Sequential boundary repair ---
@@ -470,7 +463,6 @@ class CosmosDetector(TurnSignalDetector):
                 'label': seg['label'],
                 'start_frame': s,
                 'end_frame': e,
-                'confidence': seg['confidence'],
                 'start_time_seconds': round(s / fps, 2),
                 'end_time_seconds': round(e / fps, 2),
             })
@@ -495,12 +487,11 @@ class CosmosDetector(TurnSignalDetector):
         If no temporal info, the whole video gets the single label.
         """
         label = str(parsed_json.get('label', 'none')).lower().strip()
-        valid_labels = {'left', 'right', 'none', 'both'}
+        valid_labels = {'left', 'right', 'none', 'both', 'hazard'}
+        if label == 'both':
+            label = 'hazard'
         if label not in valid_labels:
             label = 'none'
-
-        confidence = float(parsed_json.get('confidence', 0.5))
-        confidence = max(0.0, min(1.0, confidence))
 
         last_frame = num_frames - 1
         fps = self.config.model_kwargs.get('video_fps', 10.0)
@@ -524,7 +515,6 @@ class CosmosDetector(TurnSignalDetector):
                 'label': label,
                 'start_frame': 0,
                 'end_frame': last_frame,
-                'confidence': confidence,
                 'start_time_seconds': 0.0,
                 'end_time_seconds': round(last_frame / fps, 2),
             }]
@@ -541,7 +531,6 @@ class CosmosDetector(TurnSignalDetector):
                 'label': 'none',
                 'start_frame': 0,
                 'end_frame': start_frame - 1,
-                'confidence': 0.85,
                 'start_time_seconds': 0.0,
                 'end_time_seconds': round((start_frame - 1) / fps, 2),
             })
@@ -551,7 +540,6 @@ class CosmosDetector(TurnSignalDetector):
             'label': label,
             'start_frame': start_frame,
             'end_frame': end_frame,
-            'confidence': confidence,
             'start_time_seconds': round(start_frame / fps, 2),
             'end_time_seconds': round(end_frame / fps, 2),
         })
@@ -562,7 +550,6 @@ class CosmosDetector(TurnSignalDetector):
                 'label': 'none',
                 'start_frame': end_frame + 1,
                 'end_frame': last_frame,
-                'confidence': 0.85,
                 'start_time_seconds': round((end_frame + 1) / fps, 2),
                 'end_time_seconds': round(last_frame / fps, 2),
             })
@@ -578,7 +565,6 @@ class CosmosDetector(TurnSignalDetector):
                 'label': 'none',
                 'start_frame': 0,
                 'end_frame': last_frame,
-                'confidence': 0.0,
                 'start_time_seconds': 0.0,
                 'end_time_seconds': round(last_frame / fps, 2),
             }],
@@ -599,7 +585,7 @@ class CosmosDetector(TurnSignalDetector):
         for seg in segments:
             if seg.get('label', 'none') != 'none':
                 return seg
-        return segments[0] if segments else {'label': 'none', 'confidence': 0.0}
+        return segments[0] if segments else {'label': 'none'}
 
     # -------------------------------------------------------------------------
     # Image helpers

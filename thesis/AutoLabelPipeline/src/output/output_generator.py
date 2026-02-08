@@ -54,11 +54,7 @@ class OutputGenerator:
             # Each formatter handles what it needs
             if format_str == 'csv':
                 from .formatters import CSVFormatter
-                CSVFormatter.save(
-                    predictions,
-                    str(file_path),
-                    include_confidence=self.config.include_confidence
-                )
+                CSVFormatter.save(predictions, str(file_path))
             elif format_str == 'json':
                 from .formatters import JSONFormatter
                 JSONFormatter.save(
@@ -155,7 +151,6 @@ class OutputGenerator:
             'output_directory': str(self.output_dir),
             'configuration': {
                 'formats': [f.value for f in self.config.formats],
-                'include_confidence': self.config.include_confidence,
                 'visualizations_enabled': self.config.save_visualizations
             }
         }
@@ -211,7 +206,6 @@ class OutputGenerator:
             f.write("-"*80 + "\n")
             config = report['configuration']
             f.write(f"Output Formats: {', '.join(config['formats'])}\n")
-            f.write(f"Include Confidence: {config['include_confidence']}\n")
             f.write(f"Visualizations: {config['visualizations_enabled']}\n")
         
         logger.info(f"Generated text report: {output_path}")

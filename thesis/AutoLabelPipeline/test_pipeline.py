@@ -39,11 +39,13 @@ def _normalize_label(label: str) -> str:
     if label is None:
         return "none"
     label = str(label).strip().lower()
-    return label if label in {"left", "right", "both", "none"} else "none"
+    if label == "both":
+        label = "hazard"
+    return label if label in {"left", "right", "hazard", "none"} else "none"
 
 def _compute_frame_metrics(y_true, y_pred, labels=None):
     if labels is None:
-        labels = ["left", "right", "both", "none"]
+        labels = ["left", "right", "hazard", "none"]
     results = {"per_class": {}, "macro_f1": 0.0, "accuracy": 0.0, "support": 0}
     if not y_true:
         return results
@@ -135,7 +137,6 @@ def segments_to_frames(segment_prediction: Dict, frame_ids: List[int], fps: floa
             frame_predictions.append({
                 'frame_id': frame_id,
                 'label': _normalize_label(segment_prediction.get('label', 'none')),
-                'confidence': segment_prediction.get('confidence', 0.0),
                 'raw_output': segment_prediction.get('raw_output', '')
             })
         return frame_predictions
@@ -145,7 +146,6 @@ def segments_to_frames(segment_prediction: Dict, frame_ids: List[int], fps: floa
         label = _normalize_label(seg.get('label', 'none'))
         start = seg.get('start_frame', 0)
         end = seg.get('end_frame', num_frames - 1)
-        confidence = seg.get('confidence', 0.5)
         
         # Ensure we don't exceed num_frames
         start = max(0, min(start, num_frames - 1))
@@ -157,7 +157,6 @@ def segments_to_frames(segment_prediction: Dict, frame_ids: List[int], fps: floa
             frame_predictions.append({
                 'frame_id': frame_ids[frame_idx],
                 'label': label,
-                'confidence': confidence,
                 'start_frame': start_frame_id,
                 'end_frame': end_frame_id,
                 'start_time_seconds': round(start_frame_id / fps, 2),
@@ -191,7 +190,6 @@ def segments_to_frames(segment_prediction: Dict, frame_ids: List[int], fps: floa
                 complete_predictions.append({
                     'frame_id': frame_id,
                     'label': 'none',
-                    'confidence': 0.5,
                     'raw_output': segment_prediction.get('raw_output', ''),
                     'reasoning': 'Gap filled'
                 })

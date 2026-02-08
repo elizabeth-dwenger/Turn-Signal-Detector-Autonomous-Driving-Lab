@@ -48,7 +48,8 @@ class TemporalSmoother:
         elif self.method == SmoothingMethod.HMM:
             return self._hmm_filter(predictions)
         elif self.method == SmoothingMethod.THRESHOLD:
-            return self._threshold_filter(predictions)
+            logger.warning("Threshold smoothing is disabled; returning raw predictions.")
+            return predictions
         else:
             logger.warning(f"Unknown smoothing method: {self.method}")
             return predictions
@@ -72,19 +73,9 @@ class TemporalSmoother:
             label_counts = Counter(window_labels)
             smoothed_label = label_counts.most_common(1)[0][0]
             
-            # Average confidence in window for this label
-            window_confidences = [
-                predictions[j]['confidence']
-                for j in range(start, end)
-                if predictions[j]['label'] == smoothed_label
-            ]
-            
-            smoothed_confidence = np.mean(window_confidences) if window_confidences else predictions[i]['confidence']
-            
             # Create smoothed prediction
             smoothed_pred = predictions[i].copy()
             smoothed_pred['label'] = smoothed_label
-            smoothed_pred['confidence'] = smoothed_confidence
             smoothed_pred['original_label'] = predictions[i]['label']
             smoothed_pred['smoothed'] = (smoothed_label != predictions[i]['label'])
             
@@ -102,8 +93,8 @@ class TemporalSmoother:
         Models state transitions and uses Viterbi algorithm.
         """
         # Simple HMM implementation
-        # States: none, left, right, both
-        states = ['none', 'left', 'right', 'both']
+        # States: none, left, right, hazard
+        states = ['none', 'left', 'right', 'hazard']
         state_to_idx = {s: i for i, s in enumerate(states)}
         
         # Transition probabilities (higher for staying in same state)
@@ -111,16 +102,19 @@ class TemporalSmoother:
             [0.8, 0.1, 0.1, 0.0],  # from none
             [0.1, 0.8, 0.05, 0.05],  # from left
             [0.1, 0.05, 0.8, 0.05],  # from right
-            [0.1, 0.3, 0.3, 0.3],   # from both
+            [0.1, 0.3, 0.3, 0.3],   # from hazard
         ])
         
         # Build emission probabilities from predictions
         emission_probs = []
         for pred in predictions:
-            # Confidence distribution
+            # Emission distribution
             probs = np.full(len(states), 0.1)  # Small base probability
-            label_idx = state_to_idx.get(pred['label'], 0)
-            probs[label_idx] = pred['confidence']
+            pred_label = pred['label']
+            if pred_label == 'both':
+                pred_label = 'hazard'
+            label_idx = state_to_idx.get(pred_label, 0)
+            probs[label_idx] = 1.0
             probs = probs / probs.sum()  # Normalize
             emission_probs.append(probs)
         
@@ -169,54 +163,6 @@ class TemporalSmoother:
         
         return smoothed
     
-    def _threshold_filter(self, predictions: List[Dict]) -> List[Dict]:
-        """
-        Filter based on confidence threshold and minimum duration.
-        Removes brief signals below threshold.
-        """
-        min_duration = self.config.min_signal_duration_frames
-        conf_threshold = self.config.confidence_threshold
-        
-        smoothed = predictions.copy()
-        
-        # First pass: mark low-confidence as 'none'
-        for pred in smoothed:
-            if pred['confidence'] < conf_threshold and pred['label'] != 'none':
-                pred['original_label'] = pred['label']
-                pred['label'] = 'none'
-                pred['smoothed'] = True
-        
-        # Second pass: remove brief signal episodes
-        i = 0
-        while i < len(smoothed):
-            if smoothed[i]['label'] != 'none':
-                # Found signal start
-                signal_label = smoothed[i]['label']
-                signal_start = i
-                
-                # Find end of this signal
-                j = i
-                while j < len(smoothed) and smoothed[j]['label'] == signal_label:
-                    j += 1
-                
-                signal_duration = j - i
-                
-                # If too short, mark as 'none'
-                if signal_duration < min_duration:
-                    for k in range(signal_start, j):
-                        if 'original_label' not in smoothed[k]:
-                            smoothed[k]['original_label'] = smoothed[k]['label']
-                        smoothed[k]['label'] = 'none'
-                        smoothed[k]['smoothed'] = True
-                
-                i = j
-            else:
-                i += 1
-        
-        changed = sum(1 for p in smoothed if p.get('smoothed', False))
-        logger.debug(f"Threshold filter: {changed}/{len(predictions)} labels changed")
-        
-        return smoothed
 
 
 class EpisodeReconstructor:
@@ -233,8 +179,6 @@ class EpisodeReconstructor:
         self.config = single_image_config
         self.min_duration = single_image_config.min_signal_duration_frames
         self.max_gap = single_image_config.max_gap_frames
-        self.threshold_start = single_image_config.confidence_threshold_start
-        self.threshold_continue = single_image_config.confidence_threshold_continue
         self.interpolate = single_image_config.interpolate_gaps
     
     def reconstruct_episodes(self, predictions: List[Dict]) -> List[Dict]:
@@ -242,7 +186,7 @@ class EpisodeReconstructor:
         Reconstruct signal episodes from single-frame predictions.
         
         Strategy:
-        1. Find frames with high confidence signal detection (>= threshold_start)
+        1. Find frames with signal labels
         2. Group into episodes with max_gap tolerance
         3. Fill gaps within episodes
         4. Filter episodes by min_duration
@@ -253,7 +197,7 @@ class EpisodeReconstructor:
         # Process each signal type separately
         result = [p.copy() for p in predictions]
         
-        for signal_label in ['left', 'right', 'both']:
+        for signal_label in ['left', 'right', 'hazard']:
             episodes = self._find_episodes(predictions, signal_label)
             
             # Apply episodes to result
@@ -273,22 +217,26 @@ class EpisodeReconstructor:
         """
         Find episodes for a specific signal label.
         """
-        # Find high-confidence detections
-        high_conf_frames = [
+        if signal_label == 'hazard':
+            match_labels = {'hazard', 'both'}
+        else:
+            match_labels = {signal_label}
+
+        signal_frames = [
             i for i, p in enumerate(predictions)
-            if p['label'] == signal_label and p['confidence'] >= self.threshold_start
+            if p['label'] in match_labels
         ]
         
-        if not high_conf_frames:
+        if not signal_frames:
             return []
         
         # Group into episodes with gap tolerance
         episodes = []
-        current_start = high_conf_frames[0]
-        current_end = high_conf_frames[0]
+        current_start = signal_frames[0]
+        current_end = signal_frames[0]
         
-        for i in range(1, len(high_conf_frames)):
-            frame_idx = high_conf_frames[i]
+        for i in range(1, len(signal_frames)):
+            frame_idx = signal_frames[i]
             gap = frame_idx - current_end - 1
             
             if gap <= self.max_gap:
@@ -324,7 +272,7 @@ class EpisodeReconstructor:
     
     def _interpolate_episodes(self, predictions: List[Dict], episodes: List[tuple], signal_label: str) -> List[tuple]:
         """
-        Extend episodes to cover gaps between high-confidence frames.
+        Extend episodes to cover gaps between signal frames.
         Fill frames between first detection and last detection.
         """
         interpolated = []

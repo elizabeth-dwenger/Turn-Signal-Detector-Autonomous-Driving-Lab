@@ -30,7 +30,9 @@ def _normalize_label(label: str) -> str:
     if label is None:
         return "none"
     label = str(label).strip().lower()
-    return label if label in {"left", "right", "both", "none"} else "none"
+    if label == "both":
+        label = "hazard"
+    return label if label in {"left", "right", "hazard", "none"} else "none"
 
 def _get_frame_ids_for_video(sequence, preprocessor, use_crops: bool = True,
                              apply_max_length: bool = True,
@@ -64,7 +66,6 @@ def _segments_to_frames(segment_prediction, frame_ids, fps: float):
             predictions.append({
                 'frame_id': frame_id,
                 'label': label,
-                'confidence': segment_prediction.get('confidence', 0.0),
                 'raw_output': segment_prediction.get('raw_output', ''),
                 'reasoning': segment_prediction.get('reasoning', '')
             })
@@ -74,7 +75,6 @@ def _segments_to_frames(segment_prediction, frame_ids, fps: float):
         label = _normalize_label(seg.get('label', 'none'))
         start = seg.get('start_frame', 0)
         end = seg.get('end_frame', num_frames - 1)
-        confidence = seg.get('confidence', 0.5)
         start = max(0, min(start, num_frames - 1))
         end = max(0, min(end, num_frames - 1))
         start_frame_id = frame_ids[start]
@@ -84,7 +84,6 @@ def _segments_to_frames(segment_prediction, frame_ids, fps: float):
             predictions.append({
                 'frame_id': frame_ids[idx],
                 'label': label,
-                'confidence': confidence,
                 'start_frame': start_frame_id,
                 'end_frame': end_frame_id,
                 'start_time_seconds': round(start_frame_id / fps, 2),
@@ -111,7 +110,6 @@ def _segments_to_frames(segment_prediction, frame_ids, fps: float):
                 complete_predictions.append({
                     'frame_id': frame_id,
                     'label': 'none',
-                    'confidence': 0.5,
                     'reasoning': 'Gap filled'
                 })
         return complete_predictions
@@ -121,7 +119,7 @@ def _segments_to_frames(segment_prediction, frame_ids, fps: float):
 
 def _compute_frame_metrics(y_true, y_pred, labels=None):
     if labels is None:
-        labels = ["left", "right", "both", "none"]
+        labels = ["left", "right", "hazard", "none"]
     results = {"per_class": {}, "macro_f1": 0.0, "accuracy": 0.0}
     if not y_true:
         return results

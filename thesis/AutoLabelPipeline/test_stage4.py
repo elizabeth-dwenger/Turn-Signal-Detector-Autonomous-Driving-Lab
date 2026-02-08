@@ -29,35 +29,25 @@ def create_test_predictions(pattern='flickering'):
     if pattern == 'flickering':
         # Flickering signal (should be smoothed)
         labels = ['none', 'left', 'none', 'left', 'left', 'left', 'none', 'left', 'left', 'none']
-        confidences = [0.9, 0.85, 0.9, 0.88, 0.92, 0.90, 0.85, 0.87, 0.91, 0.9]
     
     elif pattern == 'brief_signal':
         # Brief signal (should be removed)
         labels = ['none'] * 5 + ['left', 'left'] + ['none'] * 5
-        confidences = [0.9] * len(labels)
-    
-    elif pattern == 'low_confidence':
-        # Low confidence predictions
-        labels = ['left'] * 10
-        confidences = [0.3, 0.4, 0.35, 0.38, 0.42, 0.36, 0.39, 0.37, 0.41, 0.38]
     
     elif pattern == 'both_signals':
         # Both signals active
         labels = ['none', 'none', 'both', 'both', 'both', 'none', 'none']
-        confidences = [0.9] * len(labels)
     
     else:  # normal
         # Normal signal
         labels = ['none'] * 3 + ['left'] * 7 + ['none'] * 3
-        confidences = [0.9] * len(labels)
     
     predictions = []
-    for i, (label, conf) in enumerate(zip(labels, confidences)):
+    for i, label in enumerate(labels):
         predictions.append({
             'label': label,
-            'confidence': conf,
             'frame_id': i,
-            'raw_output': f'{{"label": "{label}", "confidence": {conf}}}'
+            'raw_output': f'{{"label": "{label}"}}'
         })
     
     return predictions
@@ -120,7 +110,6 @@ def test_episode_reconstruction(config):
         for i, label in enumerate(labels):
             predictions.append({
                 'label': label,
-                'confidence': 0.85 if label == 'left' else 0.9,
                 'frame_id': i
             })
         
@@ -161,8 +150,6 @@ def test_quality_control(config):
         # Note: We need to ensure quality_control exists in config
         class QCConfig:
             def __init__(self):
-                self.flag_low_confidence = True
-                self.low_confidence_threshold = 0.4
                 self.random_sample_rate = 0.1
                 self.stratified_sampling = True
                 self.flag_both_signals = True
@@ -174,7 +161,6 @@ def test_quality_control(config):
         
         # Test on various patterns
         test_cases = [
-            ('low_confidence', create_test_predictions('low_confidence')),
             ('both_signals', create_test_predictions('both_signals')),
             ('normal', create_test_predictions('normal')),
         ]
@@ -290,7 +276,6 @@ def demo_before_after(config):
         for i, label in enumerate(raw_labels):
             raw_predictions.append({
                 'label': label,
-                'confidence': 0.75 + np.random.random() * 0.2,
                 'frame_id': i
             })
         

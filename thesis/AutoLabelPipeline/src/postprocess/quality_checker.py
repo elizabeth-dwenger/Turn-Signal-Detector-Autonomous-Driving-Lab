@@ -1,11 +1,11 @@
 """
 Quality control for predictions.
-Flags low-confidence predictions and anomalies for manual review.
+Flags anomalies and inconsistencies for manual review.
 """
-import numpy as np
 from typing import List, Dict, Set
 import logging
 from collections import Counter
+import numpy as np
 
 
 logger = logging.getLogger(__name__)
@@ -14,15 +14,13 @@ logger = logging.getLogger(__name__)
 class QualityChecker:
     """
     Identifies predictions that need manual review.
-    Flags low confidence, anomalies, and inconsistencies.
+    Flags anomalies and inconsistencies.
     """
     
     def __init__(self, quality_control_config):
         # Handle None case with defaults
         if quality_control_config is None:
             # Use default values
-            self.low_conf_threshold = 0.4
-            self.flag_low_confidence = True
             self.flag_both_signals = True
             self.flag_rapid_changes = True
             self.rapid_change_threshold = 3
@@ -30,8 +28,6 @@ class QualityChecker:
             self.stratified = True
         else:
             self.config = quality_control_config
-            self.low_conf_threshold = quality_control_config.low_confidence_threshold
-            self.flag_low_confidence = quality_control_config.flag_low_confidence
             self.flag_both_signals = quality_control_config.flag_both_signals
             self.flag_rapid_changes = quality_control_config.flag_rapid_changes
             self.rapid_change_threshold = quality_control_config.rapid_change_threshold
@@ -46,7 +42,6 @@ class QualityChecker:
             'total_frames': len(predictions),
             'flagged_frames': [],
             'flag_reasons': Counter(),
-            'confidence_stats': {},
             'label_distribution': Counter(),
         }
         
@@ -54,32 +49,18 @@ class QualityChecker:
             return report
         
         # Compute statistics
-        confidences = [p['confidence'] for p in predictions]
         labels = [p['label'] for p in predictions]
-        
-        report['confidence_stats'] = {
-            'mean': np.mean(confidences),
-            'median': np.median(confidences),
-            'std': np.std(confidences),
-            'min': np.min(confidences),
-            'max': np.max(confidences),
-        }
-        
         report['label_distribution'] = Counter(labels)
         
         # Run checks
         for i, pred in enumerate(predictions):
             flags = []
             
-            # Check 1: Low confidence
-            if self.flag_low_confidence and pred['confidence'] < self.low_conf_threshold:
-                flags.append('low_confidence')
-            
-            # Check 2: Both signals (rare/anomalous)
-            if self.flag_both_signals and pred['label'] == 'both':
+            # Check 1: Both signals (rare/anomalous)
+            if self.flag_both_signals and pred['label'] in {'both', 'hazard'}:
                 flags.append('both_signals')
             
-            # Check 3: Rapid changes
+            # Check 2: Rapid changes
             if self.flag_rapid_changes and i > 0:
                 # Count changes in recent history
                 start = max(0, i - self.rapid_change_threshold)
@@ -89,19 +70,11 @@ class QualityChecker:
                 if unique_labels >= 3:  # 3+ different labels in small window
                     flags.append('rapid_changes')
             
-            # Check 4: Smoothing changed label significantly
-            if pred.get('smoothed') or pred.get('reconstructed'):
-                if pred.get('original_label') != pred['label']:
-                    # Only flag if confidence was high but changed anyway
-                    if pred['confidence'] > 0.7:
-                        flags.append('high_conf_but_changed')
-            
             # Add to flagged list
             if flags:
                 report['flagged_frames'].append({
                     'frame_id': pred.get('frame_id', i),
                     'label': pred['label'],
-                    'confidence': pred['confidence'],
                     'flags': flags
                 })
                 
@@ -117,7 +90,6 @@ class QualityChecker:
                 report['flagged_frames'].append({
                     'frame_id': predictions[idx].get('frame_id', idx),
                     'label': predictions[idx]['label'],
-                    'confidence': predictions[idx]['confidence'],
                     'flags': ['random_sample']
                 })
                 report['flag_reasons']['random_sample'] += 1
@@ -167,29 +139,6 @@ class QualityChecker:
         
         return sampled_indices
     
-    def filter_by_confidence(self, predictions: List[Dict]) -> List[Dict]:
-        """
-        Filter predictions by confidence threshold.
-        Low-confidence predictions set to 'none' or marked as uncertain.
-        """
-        filtered = []
-        changed = 0
-        
-        for pred in predictions:
-            filtered_pred = pred.copy()
-            
-            if pred['confidence'] < self.low_conf_threshold and pred['label'] != 'none':
-                filtered_pred['original_label'] = pred['label']
-                filtered_pred['label'] = 'none'
-                filtered_pred['filtered'] = True
-                changed += 1
-            
-            filtered.append(filtered_pred)
-        
-        if changed > 0:
-            logger.info(f"Confidence filter: {changed}/{len(predictions)} predictions changed to 'none'")
-        
-        return filtered
 
 
 class ConstraintEnforcer:
@@ -201,7 +150,6 @@ class ConstraintEnforcer:
         self.config = postprocessing_config
         self.min_duration = postprocessing_config.min_signal_duration_frames
         self.max_duration = postprocessing_config.max_signal_duration_frames
-        self.allow_both = postprocessing_config.allow_both_signals
     
     def enforce_constraints(self, predictions: List[Dict]) -> List[Dict]:
         """
@@ -215,10 +163,6 @@ class ConstraintEnforcer:
         # Constraint 2: Maximum duration (if set)
         if self.max_duration:
             constrained = self._enforce_max_duration(constrained)
-        
-        # Constraint 3: Both signals (if not allowed)
-        if not self.allow_both:
-            constrained = self._remove_both_signals(constrained)
         
         return constrained
     
@@ -286,23 +230,3 @@ class ConstraintEnforcer:
         
         return result
     
-    def _remove_both_signals(self, predictions: List[Dict]) -> List[Dict]:
-        """Convert 'both' signals to 'none' if not allowed"""
-        result = []
-        changed = 0
-        
-        for pred in predictions:
-            result_pred = pred.copy()
-            
-            if pred['label'] == 'both':
-                result_pred['original_label'] = 'both'
-                result_pred['label'] = 'none'
-                result_pred['constraint_enforced'] = True
-                changed += 1
-            
-            result.append(result_pred)
-        
-        if changed > 0:
-            logger.info(f"Removed {changed} 'both' signals (not allowed)")
-        
-        return result

@@ -53,7 +53,6 @@ def test_config_loading():
             print(f"\n  Postprocessing:")
             print(f"    Smoothing: {config.postprocessing.smoothing_method.value}")
             print(f"    Window size: {config.postprocessing.smoothing_window_size}")
-            print(f"    Confidence threshold: {config.postprocessing.confidence_threshold}")
             
             # Check single-image specific config
             if config.model.inference_mode == InferenceMode.SINGLE_IMAGE:
@@ -61,8 +60,6 @@ def test_config_loading():
                 print(f"\n  Single-Image Mode:")
                 print(f"    Min signal duration: {si_config.min_signal_duration_frames}")
                 print(f"    Max gap: {si_config.max_gap_frames}")
-                print(f"    Start threshold: {si_config.confidence_threshold_start}")
-                print(f"    Continue threshold: {si_config.confidence_threshold_continue}")
             
             print(f"\n  Output:")
             print(f"    Formats: {[f.value for f in config.output.formats]}")

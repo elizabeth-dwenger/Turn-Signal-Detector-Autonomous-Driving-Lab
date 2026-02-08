@@ -40,7 +40,7 @@ class Frame:
     track_id: int
     frame_id: int
     class_id: int
-    score: float  # Detection confidence
+    score: float  # Detection score
     bbox: BoundingBox
     
     # Paths

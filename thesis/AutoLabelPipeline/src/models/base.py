@@ -108,7 +108,7 @@ class TurnSignalDetector(ABC):
     
     def _parse_response(self, response: str) -> Dict:
         """
-        Parse model response to extract label and confidence.
+        Parse model response to extract label.
         """
         import json
         import re
@@ -123,24 +123,20 @@ class TurnSignalDetector(ABC):
                 
                 # Extract fields
                 label = parsed.get('label', 'none').lower()
-                confidence = float(parsed.get('confidence', 0.5))
+                if label == 'both':
+                    label = 'hazard'
                 reasoning = parsed.get('reasoning', '')
                 
                 # Validate label
-                valid_labels = {'left', 'right', 'none', 'both'}
+                valid_labels = {'left', 'right', 'none', 'both', 'hazard'}
                 if label not in valid_labels:
                     logger.warning(f"Invalid label '{label}', defaulting to 'none'")
                     label = 'none'
-                    confidence = 0.3
-                
-                # Validate confidence
-                confidence = max(0.0, min(1.0, confidence))
                 
                 self.metrics['successful_parses'] += 1
                 
                 return {
                     'label': label,
-                    'confidence': confidence,
                     'reasoning': reasoning
                 }
             
@@ -151,13 +147,14 @@ class TurnSignalDetector(ABC):
         # Fallback: try to extract label from text
         response_lower = response.lower()
         
-        for label in ['left', 'right', 'both', 'none']:
+        for label in ['left', 'right', 'hazard', 'both', 'none']:
             if label in response_lower:
+                if label == 'both':
+                    label = 'hazard'
                 logger.info(f"Extracted label '{label}' from text (no JSON)")
                 self.metrics['failed_parses'] += 1
                 return {
                     'label': label,
-                    'confidence': 0.5,  # Low confidence for text-based extraction
                     'reasoning': ''
                 }
         
@@ -167,7 +164,6 @@ class TurnSignalDetector(ABC):
         
         return {
             'label': 'none',
-            'confidence': 0.0,
             'reasoning': 'Parse failed'
         }
     

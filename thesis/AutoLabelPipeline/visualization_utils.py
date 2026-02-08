@@ -36,14 +36,13 @@ def plot_sequence_timeline_with_temporal(predictions, ground_truth=None, fps=10.
         # Main signal visualization
         frames = list(range(sequence_length))
         label = pred.get('label', 'none')
-        conf = pred.get('confidence', 0.0)
         
         label_map = {'none': 0, 'left': 1, 'right': 2, 'both': 3}
         label_num = label_map.get(label, 0)
         
         # Plot as a bar showing the prediction
         ax1.barh(0, sequence_length, height=0.5, color='lightgray', alpha=0.3)
-        ax1.text(sequence_length/2, 0, f'{label.upper()} (conf: {conf:.2f})',
+        ax1.text(sequence_length/2, 0, f'{label.upper()}',
                 ha='center', va='center', fontsize=14, weight='bold')
         
         ax1.set_xlim([0, sequence_length])
@@ -120,12 +119,10 @@ def plot_sequence_timeline_with_temporal(predictions, ground_truth=None, fps=10.
         
     else:
         # Single-image mode: per-frame predictions
-        ax1 = plt.subplot(2, 1, 1)
-        ax2 = plt.subplot(2, 1, 2)
+        ax1 = plt.subplot(1, 1, 1)
         
         frames = list(range(len(predictions)))
         labels = [p.get('label', 'none') for p in predictions]
-        confidences = [p.get('confidence', 0.0) for p in predictions]
         
         label_map = {'none': 0, 'left': 1, 'right': 2, 'both': 3}
         label_nums = [label_map.get(l, 0) for l in labels]
@@ -145,21 +142,7 @@ def plot_sequence_timeline_with_temporal(predictions, ground_truth=None, fps=10.
         ax1.set_title('Frame-by-Frame Predictions', fontsize=14, weight='bold')
         ax1.grid(True, alpha=0.3)
         ax1.legend()
-        
-        # Plot confidence
-        ax2.fill_between(frames, confidences, alpha=0.5, color='blue')
-        ax2.plot(frames, confidences, 'b-', linewidth=2)
-        ax2.axhline(y=0.5, color='r', linestyle='--', alpha=0.5, label='Threshold')
-        ax2.set_xlabel('Frame Index', fontsize=12)
-        ax2.set_ylabel('Confidence', fontsize=12)
-        ax2.set_ylim([0, 1])
-        ax2.grid(True, alpha=0.3)
-        ax2.legend()
-        
-        # Add time axis
-        ax2_time = ax2.twiny()
-        ax2_time.set_xlim([0, len(frames) / fps])
-        ax2_time.set_xlabel('Time (seconds)', fontsize=12)
+        ax1.set_xlabel('Frame Index', fontsize=12)
     
     plt.tight_layout()
     return fig
@@ -178,7 +161,6 @@ def plot_temporal_comparison(results_dict, fps=10.0):
         start_f = pred.get('start_frame')
         end_f = pred.get('end_frame')
         label = pred.get('label', 'none')
-        conf = pred.get('confidence', 0.0)
         
         # Determine sequence length
         seq_len = end_f + 10 if end_f else 50
@@ -203,7 +185,7 @@ def plot_temporal_comparison(results_dict, fps=10.0):
             ax.text(end_f, 0.3, f'{end_t:.2f}s', fontsize=9, ha='center')
         
         # Model info
-        ax.text(0, 0, f'{model_name}: {label.upper()} ({conf:.2f})',
+        ax.text(0, 0, f'{model_name}: {label.upper()}',
                fontsize=11, va='center', ha='left', weight='bold',
                bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
         
@@ -227,10 +209,7 @@ def print_temporal_summary(prediction):
     print("="*80)
     
     label = prediction.get('label', 'none')
-    conf = prediction.get('confidence', 0.0)
-    
     print(f"\nSignal Type: {label.upper()}")
-    print(f"Confidence: {conf:.2f}")
     
     start_f = prediction.get('start_frame')
     end_f = prediction.get('end_frame')

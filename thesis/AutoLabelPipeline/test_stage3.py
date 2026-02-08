@@ -142,7 +142,6 @@ def test_single_image_inference(model, config):
         
         print(f"\n    Prediction successful!")
         print(f"    Label: {prediction['label']}")
-        print(f"    Confidence: {prediction['confidence']:.3f}")
         print(f"    Latency: {prediction['latency_ms']:.1f} ms")
         
         if prediction.get('reasoning'):
@@ -192,7 +191,6 @@ def test_video_inference(model, config):
         
         print(f"\n    Prediction successful!")
         print(f"    Label: {prediction['label']}")
-        print(f"    Confidence: {prediction['confidence']:.3f}")
         print(f"    Latency: {prediction['latency_ms']:.1f} ms")
         
         if prediction.get('reasoning'):

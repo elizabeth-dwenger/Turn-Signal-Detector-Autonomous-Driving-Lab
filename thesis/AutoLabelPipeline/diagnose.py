@@ -40,7 +40,6 @@ def diagnose_result_directory(result_dir):
     issues = {
         'truncated_output': [],
         'missing_temporal': [],
-        'low_confidence': [],
         'parse_failures': [],
         'empty_predictions': []
     }
@@ -68,13 +67,8 @@ def diagnose_result_directory(result_dir):
                 if seq_id not in issues['missing_temporal']:
                     issues['missing_temporal'].append(seq_id)
             
-            # Check for low confidence
-            if pred.get('confidence', 0) < 0.3:
-                if seq_id not in issues['low_confidence']:
-                    issues['low_confidence'].append(seq_id)
-            
             # Check for parse failures
-            if pred.get('confidence') == 0.0 and 'parse failed' in pred.get('reasoning', '').lower():
+            if 'parse failed' in pred.get('reasoning', '').lower():
                 if seq_id not in issues['parse_failures']:
                     issues['parse_failures'].append(seq_id)
     
@@ -110,18 +104,12 @@ def diagnose_result_directory(result_dir):
             for seq in issues['parse_failures'][:3]:
                 print(f"    - {seq}")
         
-        if issues['low_confidence']:
-            print(f"\n  Low confidence (<0.3): {len(issues['low_confidence'])}")
-            for seq in issues['low_confidence'][:3]:
-                print(f"    - {seq}")
-    
     # Analyze prediction distribution
     print(f"\n" + "="*80)
     print("PREDICTION STATISTICS")
     print("="*80)
     
     all_labels = []
-    all_confidences = []
     has_temporal = 0
     
     for json_file in json_files:
@@ -130,7 +118,6 @@ def diagnose_result_directory(result_dir):
         
         for pred in data.get('predictions', []):
             all_labels.append(pred.get('label', 'unknown'))
-            all_confidences.append(pred.get('confidence', 0.0))
             if pred.get('start_frame') is not None:
                 has_temporal += 1
     
@@ -140,14 +127,6 @@ def diagnose_result_directory(result_dir):
     for label, count in label_counts.most_common():
         pct = count / len(all_labels) * 100 if all_labels else 0
         print(f"  {label:10s}: {count:4d} ({pct:5.1f}%)")
-    
-    print(f"\nConfidence statistics:")
-    if all_confidences:
-        import numpy as np
-        print(f"  Mean: {np.mean(all_confidences):.3f}")
-        print(f"  Median: {np.median(all_confidences):.3f}")
-        print(f"  Min: {np.min(all_confidences):.3f}")
-        print(f"  Max: {np.max(all_confidences):.3f}")
     
     print(f"\nTemporal localization:")
     print(f"  Predictions with temporal info: {has_temporal}/{len(all_labels)} ({has_temporal/len(all_labels)*100 if all_labels else 0:.1f}%)")
@@ -184,7 +163,6 @@ def diagnose_single_sequence(json_file):
         
         # Basic info
         print(f"\nLabel: {pred.get('label', 'N/A')}")
-        print(f"Confidence: {pred.get('confidence', 'N/A')}")
         
         # Temporal info
         start_f = pred.get('start_frame')
@@ -289,7 +267,6 @@ def check_prompt_file(prompt_path):
         'Asks for start_time': 'start_time' in prompt,
         'Asks for end_time': 'end_time' in prompt,
         'Provides examples': 'example' in prompt.lower(),
-        'Has confidence guidelines': 'confidence' in prompt.lower(),
     }
     
     for check, passed in checks.items():

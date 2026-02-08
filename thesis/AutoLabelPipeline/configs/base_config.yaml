@@ -21,14 +21,10 @@ postprocessing:
   temporal_smoothing_enabled: true
   smoothing_method: "mode"
   smoothing_window_size: 7
-  confidence_threshold: 0.6
   min_signal_duration_frames: 3
   max_signal_duration_frames: null
-  allow_both_signals: false
 
 quality_control:
-  flag_low_confidence: true
-  low_confidence_threshold: 0.4
   random_sample_rate: 0.05
   stratified_sampling: true
   flag_both_signals: true
@@ -37,7 +33,6 @@ quality_control:
 
 output:
   formats: ["csv", "json"]
-  include_confidence: true
   include_raw_output: false
   save_visualizations: true
   visualization_sample_rate: 0.01
