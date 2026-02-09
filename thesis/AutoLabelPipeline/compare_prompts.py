@@ -133,14 +133,17 @@ def _compute_frame_metrics(y_true, y_pred, labels=None):
         tp = sum(1 for t, p in zip(y_true, y_pred) if t == label and p == label)
         fp = sum(1 for t, p in zip(y_true, y_pred) if t != label and p == label)
         fn = sum(1 for t, p in zip(y_true, y_pred) if t == label and p != label)
+        support = sum(1 for t in y_true if t == label)
         precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
         recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
         f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) > 0 else 0.0
+        accuracy = tp / support if support > 0 else 0.0
         results["per_class"][label] = {
             "precision": precision,
             "recall": recall,
             "f1": f1,
-            "support": sum(1 for t in y_true if t == label)
+            "support": support,
+            "accuracy": accuracy
         }
         f1s.append(f1)
     
@@ -396,6 +399,7 @@ def test_prompt(config_path: str, prompt_file: str, test_sequences_file: str,
         'test_set': test_sequences_file,
         'timestamp': timestamp,
         'model': model_name,
+        'inference_mode': config.model.inference_mode.value,
         'num_sequences': len(results),
         'accuracy': accuracy,
         'metrics': metrics,
@@ -413,6 +417,7 @@ def test_prompt(config_path: str, prompt_file: str, test_sequences_file: str,
         'prompt_file': prompt_file or config.model.prompt_template_path,
         'timestamp': timestamp,
         'model': model_name,
+        'inference_mode': config.model.inference_mode.value,
         'num_sequences': len(results),
         'accuracy': accuracy,
         'metrics': metrics,
@@ -457,14 +462,22 @@ def compare_prompts(comparison_dir: str):
     for result_file in sorted(result_files):
         with open(result_file, 'r') as f:
             data = json.load(f)
-        
+        per_class = _load_per_class_metrics(data, result_file=result_file)
+        inference_mode = _infer_inference_mode(data)
+        model_display = _model_display_name(data.get('model', 'unknown_model'), inference_mode)
+
         comparison_data.append({
+            'Model': model_display,
             'Prompt': Path(data['prompt_file']).stem,
             'Timestamp': data['timestamp'],
             'Sequences': data['num_sequences'],
             'Accuracy': f"{data['accuracy']:.1%}" if data['accuracy'] else "N/A",
             'Frame Macro F1': f"{data.get('frame_metrics', {}).get('macro_f1', 0):.3f}" if data.get('frame_metrics') else "N/A",
             'Event F1': f"{data.get('event_metrics', {}).get('f1', 0):.3f}" if data.get('event_metrics') else "N/A",
+            'F1 Left': f"{per_class.get('left', {}).get('f1', 0):.2f}" if per_class else "N/A",
+            'F1 Right': f"{per_class.get('right', {}).get('f1', 0):.2f}" if per_class else "N/A",
+            'F1 Hazard': f"{per_class.get('hazard', {}).get('f1', 0):.2f}" if per_class else "N/A",
+            'F1 None': f"{per_class.get('none', {}).get('f1', 0):.2f}" if per_class else "N/A",
             'Avg Latency (ms)': f"{data['metrics']['avg_latency_ms']:.1f}",
             'Parse Success': f"{data['metrics']['parse_success_rate']:.1%}"
         })
@@ -485,6 +498,69 @@ def _parse_timestamp(ts: str) -> datetime:
         return datetime.min
 
 
+def _model_display_name(model_name: str, inference_mode: str = None) -> str:
+    if not inference_mode:
+        return model_name
+    mode = str(inference_mode).strip().lower()
+    if mode == "video":
+        suffix = "video"
+    elif mode in {"single", "single_image", "image", "single-image"}:
+        suffix = "single"
+    else:
+        suffix = mode
+    return f"{model_name}_{suffix}"
+
+
+def _infer_inference_mode(data: dict) -> str:
+    explicit = data.get("inference_mode")
+    if explicit:
+        return explicit
+    model = str(data.get("model", "")).lower()
+    if "video" in model:
+        return "video"
+    if "single" in model or "image" in model:
+        return "single"
+    run_dir = str(data.get("run_directory", "")).lower()
+    if "video" in run_dir:
+        return "video"
+    if "single" in run_dir or "image" in run_dir:
+        return "single"
+    return None
+
+
+def _load_per_class_metrics(data: dict, result_file: Path = None) -> dict:
+    """
+    Returns per-class metrics dict if available.
+    Tries frame_metrics in summary, otherwise evaluation_metrics.json in run_directory.
+    """
+    if data.get("frame_metrics", {}).get("per_class"):
+        return data["frame_metrics"]["per_class"]
+    run_dir = data.get("run_directory")
+    if run_dir:
+        eval_path = Path(run_dir) / "evaluation_metrics.json"
+        if eval_path.exists():
+            try:
+                with open(eval_path, "r") as f:
+                    eval_data = json.load(f)
+                return eval_data.get("frame_metrics", {}).get("per_class", {})
+            except Exception:
+                return {}
+    # Fallback: if result_file is a summary, try sibling run directory if encoded in filename
+    if result_file is not None and result_file.suffix == ".json":
+        try:
+            with open(result_file, "r") as f:
+                tmp = json.load(f)
+            if tmp.get("run_directory"):
+                eval_path = Path(tmp["run_directory"]) / "evaluation_metrics.json"
+                if eval_path.exists():
+                    with open(eval_path, "r") as f:
+                        eval_data = json.load(f)
+                    return eval_data.get("frame_metrics", {}).get("per_class", {})
+        except Exception:
+            return {}
+    return {}
+
+
 def compare_prompts_all(root_dir: str):
     """
     Compare all prompt results under a root directory.
@@ -501,17 +577,24 @@ def compare_prompts_all(root_dir: str):
             data = json.load(f)
 
         model = data.get('model', 'unknown_model')
+        inference_mode = _infer_inference_mode(data)
         timestamp = data.get('timestamp', '')
         parsed_ts = _parse_timestamp(timestamp)
+        per_class = _load_per_class_metrics(data, result_file=result_file)
 
         rows.append({
             "model": model,
+            "model_display": _model_display_name(model, inference_mode),
             "timestamp": timestamp,
             "timestamp_dt": parsed_ts,
             "sequences": data.get('num_sequences', 0),
             "accuracy": data.get('accuracy', None),
             "frame_macro_f1": data.get('frame_metrics', {}).get('macro_f1', None) if data.get('frame_metrics') else None,
             "event_f1": data.get('event_metrics', {}).get('f1', None) if data.get('event_metrics') else None,
+            "f1_left": per_class.get('left', {}).get('f1', None) if per_class else None,
+            "f1_right": per_class.get('right', {}).get('f1', None) if per_class else None,
+            "f1_hazard": per_class.get('hazard', {}).get('f1', None) if per_class else None,
+            "f1_none": per_class.get('none', {}).get('f1', None) if per_class else None,
             "avg_latency_ms": data.get('metrics', {}).get('avg_latency_ms', None) if data.get('metrics') else None,
             "parse_success_rate": data.get('metrics', {}).get('parse_success_rate', None) if data.get('metrics') else None,
         })
@@ -521,18 +604,20 @@ def compare_prompts_all(root_dir: str):
         print("No usable data found in summary files.")
         return
 
-    # Assign exp ids per model based on timestamp order (ascending)
-    df = df.sort_values(["model", "timestamp_dt", "timestamp"], ascending=[True, True, True])
-    df["exp_id"] = df.groupby("model").cumcount().map(lambda i: f"exp_{i}")
+    # Assign exp ids per model_display based on timestamp order (ascending)
+    df = df.sort_values(["model_display", "timestamp_dt", "timestamp"], ascending=[True, True, True])
+    df["exp_id"] = df.groupby("model_display").cumcount().map(lambda i: f"exp_{i}")
 
     # Order models by best accuracy (desc), then order within model by accuracy (desc)
     def _acc_value(val):
         return val if isinstance(val, (int, float)) else -1.0
 
-    best_acc = df.groupby("model")["accuracy"].apply(lambda s: max((_acc_value(v) for v in s), default=-1.0))
+    best_acc = df.groupby("model_display")["accuracy"].apply(lambda s: max((_acc_value(v) for v in s), default=-1.0))
     model_order = best_acc.sort_values(ascending=False).index.tolist()
 
-    df["model_order"] = df["model"].apply(lambda m: model_order.index(m) if m in model_order else len(model_order))
+    df["model_order"] = df["model_display"].apply(
+        lambda m: model_order.index(m) if m in model_order else len(model_order)
+    )
     df["accuracy_sort"] = df["accuracy"].apply(_acc_value)
 
     df = df.sort_values(
@@ -541,8 +626,20 @@ def compare_prompts_all(root_dir: str):
     )
 
     # Build multi-index table
-    table = df.set_index(["model", "exp_id"])[
-        ["timestamp", "sequences", "accuracy", "frame_macro_f1", "event_f1", "avg_latency_ms", "parse_success_rate"]
+    table = df.set_index(["model_display", "exp_id"])[
+        [
+            "timestamp",
+            "sequences",
+            "accuracy",
+            "frame_macro_f1",
+            "event_f1",
+            "f1_left",
+            "f1_right",
+            "f1_hazard",
+            "f1_none",
+            "avg_latency_ms",
+            "parse_success_rate",
+        ]
     ]
 
     # Print a readable table
@@ -553,6 +650,10 @@ def compare_prompts_all(root_dir: str):
         "accuracy": "Accuracy",
         "frame_macro_f1": "Frame Macro F1",
         "event_f1": "Event F1",
+        "f1_left": "F1 Left",
+        "f1_right": "F1 Right",
+        "f1_hazard": "F1 Hazard",
+        "f1_none": "F1 None",
         "avg_latency_ms": "Avg Latency",
         "parse_success_rate": "Parse Success",
     })
