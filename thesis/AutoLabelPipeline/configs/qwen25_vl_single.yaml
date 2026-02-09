@@ -35,7 +35,7 @@ model:
   temperature: 0.0
   top_p: 1.0
   do_sample: false
-  prompt_template_path: "data/prompts/single_exp_07.txt"
+  prompt_template_path: "data/prompts/single_exp_08.txt"
 
   model_kwargs:
     trust_remote_code: true
