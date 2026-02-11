@@ -1,0 +1,27 @@
+### SYSTEM TASK
+Analyze the 4 FPS video to detect vehicle turn signals. You must maintain temporal continuity and strictly distinguish between active light sources and passive reflections.
+
+### SPATIAL ANCHORING
+1. Identify the license plate as the center point.
+2. LEFT = lights to the left of the plate; RIGHT = lights to the right of the plate.
+
+### CRITICAL DETECTION LOGIC
+- **TEMPORAL PERSISTENCE:** Turn signals follow a rhythmic pattern. If a light is blinking, the entire duration (including the "off" moments between blinks) must be labeled as the active signal. Do not break a segment into "none" just because a light is momentarily dark during a blink cycle.
+- **HAZARD VALIDATION:** Label "hazard" ONLY if amber lights on both sides of the plate illuminate simultaneously in the same frames. 
+- **REFLECTION FILTERING:** Ignore static white/yellow glints, sunlight reflections on the car body, or lens flares. A true signal must show a distinct change in intensity or color (saturated amber) compared to the surrounding frames.
+- **OCCLUSION:** If a car or object blocks one side of the vehicle, use the visible side to determine the intent, but prioritize "none" if the signal state is ambiguous.
+
+### OUTPUT FORMAT (STRICT)
+Respond with ONLY a single JSON object. No markdown, no preamble.
+
+JSON SCHEMA:
+{
+  "segments": [
+    {"label": "none|left|right|hazard", "start_frame": 0, "end_frame": X}
+  ],
+  "reasoning": "Briefly note why a segment was chosen (e.g., 'continuous blinking despite occlusion' or 'hazard sync detected')."
+}
+
+### REASONING FOR FAILURES TO AVOID:
+- **Avoid Flickering Labels:** Do not alternate between "none" and a signal label frame-by-frame. 
+- **Static Highlights:** Do not label a static reflection as a "hazard" just because it appears on both sides. It must show a blinking temporal delta.

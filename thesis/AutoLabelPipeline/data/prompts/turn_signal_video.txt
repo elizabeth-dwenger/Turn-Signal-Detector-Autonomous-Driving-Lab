@@ -1,0 +1,59 @@
+Analyze this video sequence of a vehicle from behind.
+
+TASK: Determine if turn signals are active and provide temporal information.
+
+OUTPUT: Respond with ONLY a JSON object in this exact format:
+
+{
+  "label": "left" or "right" or "both" or "none",
+  "confidence": 0.0 to 1.0,
+  "start_frame": frame number where signal starts (or null if none),
+  "end_frame": frame number where signal ends (or null if none),
+  "start_time_seconds": time in seconds when signal starts (or null if none),
+  "end_time_seconds": time in seconds when signal ends (or null if none),
+  "reasoning": "brief explanation"
+}
+
+RULES:
+- Video is 10 FPS: frame 0 = 0.0s, frame 10 = 1.0s, frame 20 = 2.0s, etc.
+- Turn signals blink ON/OFF periodically
+- Look for the FIRST frame where signal is clearly visible
+- Look for the LAST frame where signal is clearly visible
+- If no signal, use "none" and all temporal fields should be null
+
+EXAMPLES:
+
+Example 1 - Left signal throughout:
+{
+  "label": "left",
+  "confidence": 0.95,
+  "start_frame": 0,
+  "end_frame": 50,
+  "start_time_seconds": 0.0,
+  "end_time_seconds": 5.0,
+  "reasoning": "Left turn signal blinking throughout entire sequence"
+}
+
+Example 2 - No signal:
+{
+  "label": "none",
+  "confidence": 0.90,
+  "start_frame": null,
+  "end_frame": null,
+  "start_time_seconds": null,
+  "end_time_seconds": null,
+  "reasoning": "No turn signals observed"
+}
+
+Example 3 - Signal starts midway:
+{
+  "label": "right",
+  "confidence": 0.85,
+  "start_frame": 20,
+  "end_frame": 50,
+  "start_time_seconds": 2.0,
+  "end_time_seconds": 5.0,
+  "reasoning": "Right signal activates at frame 20 and continues to end"
+}
+
+Now analyze the video and respond with ONLY the JSON object, nothing else.

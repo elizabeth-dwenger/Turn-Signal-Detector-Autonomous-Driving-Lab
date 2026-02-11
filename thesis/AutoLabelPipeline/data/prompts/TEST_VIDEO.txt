@@ -1,0 +1,84 @@
+### SYSTEM TASK
+Analyze the 10 FPS video to detect vehicle turn signals. Maintain temporal continuity but strictly terminate segments as soon as visual evidence ceases. The default state is "none"; only label a signal if there is high-contrast evidence of an active bulb.
+
+### SPATIAL ANCHORING (Viewer Perspective)
+1. IDENTIFY: The vehicle's license plate as the center point.
+2. LEFT ZONE: The area to the viewer's left of the license plate (image-left).
+3. RIGHT ZONE: The area to the viewer's right of the license plate (image-right).
+4. STRICT MAPPING: "Left" must ONLY be predicted if activity is in the Left Zone. "Right" must ONLY be predicted if activity is in the Right Zone.
+
+### CHAIN-OF-THOUGHT DETECTION PROTOCOL
+For EACH frame sequence, systematically execute these reasoning steps:
+
+**STEP 1: LOCATE REFERENCE POINT**
+- Thought: "Where is the license plate in this frame?"
+- Action: Identify plate coordinates as (x_center, y_center)
+- Output: Establish left boundary (x < x_center) and right boundary (x > x_center)
+
+**STEP 2: SCAN ZONES INDEPENDENTLY**
+- Thought: "What do I observe in the LEFT zone (x < x_center)?"
+  - Check for: High-contrast amber/orange illumination
+  - Assess: Intensity, saturation, contrast against background
+  - Record: Active/Inactive/Occluded/Uncertain
+- Thought: "What do I observe in the RIGHT zone (x > x_center)?"
+  - Check for: High-contrast amber/orange illumination
+  - Assess: Intensity, saturation, contrast against background
+  - Record: Active/Inactive/Occluded/Uncertain
+
+**STEP 3: APPLY EVIDENCE THRESHOLD**
+- Thought: "Does this meet the high-contrast requirement?"
+  - YES if: Bright, saturated amber/orange clearly distinguishable from vehicle body
+  - NO if: Dim, greyish, low contrast, or indistinguishable in low light
+- Decision: Mark zone as "VALID SIGNAL" or "INSUFFICIENT EVIDENCE"
+
+**STEP 4: TEMPORAL PATTERN RECOGNITION**
+- Thought: "Is there a repeating on-off cycle?"
+  - Analyze: Compare current frame with previous 4-6 frames (1-1.5 seconds)
+  - Look for: Regular transitions between illuminated and dark states
+  - Filter out: Static reflections, single-frame glints, sensor noise
+- Decision: "RHYTHMIC PATTERN DETECTED" or "STATIC/NOISE"
+
+**STEP 5: CROSS-ZONE COMPARISON**
+- Thought: "How do the left and right zones compare?"
+  - Both zones active + synchronized timing → "This is HAZARD"
+  - Left zone active + right zone dark/static → "This is LEFT"
+  - Right zone active + left zone dark/static → "This is RIGHT"
+  - Both zones insufficient evidence → "This is NONE"
+
+**STEP 6: OCCLUSION & VISIBILITY CHECK**
+- Thought: "Can I actually see the light housing?"
+  - Check: Is another vehicle blocking the view?
+  - Check: Has the light moved out of frame?
+  - Rule: If I cannot see the light housing, I cannot predict a signal
+- Decision: "VISIBLE" or "OCCLUDED → terminate segment"
+
+**STEP 7: SEGMENT BOUNDARY DETERMINATION**
+- For segment START:
+  - Thought: "This is the first frame where I see valid amber flashing"
+  - Verify: Evidence threshold met + temporal pattern begins
+- For segment END:
+  - Thought: "What was the LAST frame where I actually saw amber light?"
+  - Terminate if: Light dark for >6 frames (1.5s) OR occlusion OR insufficient evidence
+  - Rule: Do NOT extend predictions beyond last visible flash
+
+**STEP 8: VALIDATION CHECK**
+- Thought: "Does my label match the spatial coordinates?"
+  - If labeled "right": Verify activity is at x > x_center
+  - If labeled "left": Verify activity is at x < x_center
+- Thought: "Am I making assumptions beyond visible evidence?"
+  - If unsure → default to "none"
+
+### CRITICAL DETECTION LOGIC
+- DIRECTIONAL VALIDATION (Priority): Before outputting a label, perform a coordinate check relative to the license plate. Activity on the right side of the image relative to the plate MUST be labeled "right". Do not invert based on vehicle orientation.
+- EVIDENCE THRESHOLD: Only label a signal if there is high-contrast, saturated amber/orange light. If a light is dim, greyish, or indistinguishable from the car's paint in low light, label "none".
+- SEGMENT TERMINATION: A signal segment must end immediately if:
+    * The amber light stops flashing (remains dark for >1.5 seconds/6 frames).
+    * OCCLUSION: The light housing is blocked by another vehicle or moves out of frame. Do not predict through solid occlusion.
+- DUAL-ZONE EVALUATION: Cross-reference both zones across the temporal sequence.
+    * Synchronized flashing on both sides = "hazard".
+    * Unilateral flashing (one side dark/static) = "left" or "right".
+- TEMPORAL PERSISTENCE: Bridge the "off" moments within a repeating cycle. A segment requires a "Last Visible Flash" anchor. Truncate the segment to the last frame where amber light was actually visible.
+- REFLECTION FILTERING: Ignore static glints or sensor noise. Active signals require a clear, repeating temporal delta (on-to-off transitions).
+
+### OUTPUT FORMAT 
+Respond with the start_frame and end_frame for each turn signal, the turn signal (left | right | none | hazard), and the (chain of thought) reason. 

@@ -1,0 +1,74 @@
+Analyze this video sequence of a vehicle from behind.
+
+TASK: Identify ALL turn signal activity across the entire video. The signal state may change over time — for example it could be off at first, then turn on, or switch sides.
+
+OUTPUT: Respond with ONLY a JSON object in this exact format:
+
+{
+  "segments": [
+    {
+      "label": "none" or "left" or "right" or "both",
+      "start_frame": integer,
+      "end_frame": integer,
+      "confidence": 0.0 to 1.0
+    }
+  ],
+  "reasoning": "brief explanation of what you observed"
+}
+
+RULES:
+- Video is 10 FPS: frame 0 = 0.0s, frame 10 = 1.0s, frame 20 = 2.0s, etc.
+- Segments must cover the ENTIRE video from frame 0 to the last frame with no gaps.
+- Each segment's start_frame must equal the previous segment's end_frame + 1 (except the first, which must be 0).
+- The last segment's end_frame must equal (total frames - 1).
+- Turn signals blink ON and OFF periodically — a signal that blinks on and off is still ONE segment (don't break it into on/off sub-segments).
+- If the entire video has no signal, use a single segment: [{"label": "none", "start_frame": 0, "end_frame": N, ...}]
+- Minimize the number of segments — only create a new segment when the signal STATE genuinely changes (e.g. none→left, left→right, right→none).
+
+EXAMPLES:
+
+Example 1 - No signal at all (41 frames):
+{
+  "segments": [
+    {"label": "none", "start_frame": 0, "end_frame": 40, "confidence": 0.92}
+  ],
+  "reasoning": "No turn signals visible in any frame"
+}
+
+Example 2 - Left signal the whole time (41 frames):
+{
+  "segments": [
+    {"label": "left", "start_frame": 0, "end_frame": 40, "confidence": 0.90}
+  ],
+  "reasoning": "Left turn signal blinking throughout the entire sequence"
+}
+
+Example 3 - No signal, then right signal turns on (41 frames):
+{
+  "segments": [
+    {"label": "none", "start_frame": 0, "end_frame": 19, "confidence": 0.88},
+    {"label": "right", "start_frame": 20, "end_frame": 40, "confidence": 0.91}
+  ],
+  "reasoning": "No signal in first half, right turn signal activates around frame 20"
+}
+
+Example 4 - Left signal, then no signal (41 frames):
+{
+  "segments": [
+    {"label": "left", "start_frame": 0, "end_frame": 24, "confidence": 0.87},
+    {"label": "none", "start_frame": 25, "end_frame": 40, "confidence": 0.93}
+  ],
+  "reasoning": "Left signal active initially, then turns off at frame 25"
+}
+
+Example 5 - Left signal, then switches to right (41 frames):
+{
+  "segments": [
+    {"label": "left", "start_frame": 0, "end_frame": 14, "confidence": 0.85},
+    {"label": "none", "start_frame": 15, "end_frame": 19, "confidence": 0.80},
+    {"label": "right", "start_frame": 20, "end_frame": 40, "confidence": 0.88}
+  ],
+  "reasoning": "Left signal first, brief pause, then right signal activates"
+}
+
+Now analyze the video and respond with ONLY the JSON object, nothing else.

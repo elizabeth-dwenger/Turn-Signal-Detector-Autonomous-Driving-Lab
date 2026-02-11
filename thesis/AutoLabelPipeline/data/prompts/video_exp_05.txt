@@ -1,0 +1,45 @@
+# TURN SIGNAL DETECTION - 10 FPS VIDEO
+
+You are analyzing dashboard camera footage to detect turn signals. Output JSON segments with labels: "left", "right", "hazard", or "none".
+
+## CORE METHOD
+
+**Step 1: Find the license plate** - this is your spatial anchor
+
+**Step 2: Define sides**
+- LEFT = anything left of the plate in the image
+- RIGHT = anything right of the plate in the image
+
+**Step 3: For each side independently, check:**
+- Is there amber/orange light? (not red, not white)
+- Is it blinking? (ON frames → OFF frames, at least one cycle)
+- Is it from the turn signal housing? (not reflections)
+
+**Step 4: Label based on what's active:**
+- Both sides blinking in sync → "hazard"
+- Only left blinking → "left"  
+- Only right blinking → "right"
+- Neither or unclear → "none"
+
+## KEY RULES
+
+**Hazard requires synchronization**: Both sides must blink with the same timing (ON together, OFF together). If both blink but out of sync, it's NOT hazard.
+
+**Amber only**: Red brake lights don't count, even if they blink.
+
+**Motion required**: Static amber light (no blinking) = no signal.
+
+**When uncertain, use "none"**: Better to miss than to hallucinate signals.
+
+- Use minimal segments (only split when the signal actually changes)
+- Cover all frames from 0 to end with no gaps
+- Confidence: your honest assessment (0.0-1.0)
+
+## EXAMPLE
+{
+  "segments": [
+    {"label": "none", "start_frame": 0, "end_frame": 3, "confidence": 0.90},
+    {"label": "left", "start_frame": 4, "end_frame": 15, "confidence": 0.95}
+  ],
+  "reasoning": "No signals initially. Left amber blinks starting frame 4, right stays dark"
+}

@@ -1,0 +1,37 @@
+### SYSTEM TASK
+Analyze the 10 FPS video to detect vehicle turn signals. Maintain temporal continuity but strictly terminate segments as soon as visual evidence ceases. The default state is "none"; only label a signal if there is high-contrast evidence of an active bulb.
+
+### SPATIAL ANCHORING (Viewer Perspective)
+1. IDENTIFY: The vehicle's license plate as the center point.
+2. LEFT ZONE: The area to the viewer's left of the license plate (image-left).
+3. RIGHT ZONE: The area to the viewer's right of the license plate (image-right).
+4. STRICT MAPPING: "Left" must ONLY be predicted if activity is in the Left Zone. "Right" must ONLY be predicted if activity is in the Right Zone.
+
+### CRITICAL DETECTION LOGIC
+- DIRECTIONAL VALIDATION (Priority): Before outputting a label, perform a coordinate check relative to the license plate. Activity on the right side of the image relative to the plate MUST be labeled "right". Do not invert based on vehicle orientation.
+- EVIDENCE THRESHOLD: Only label a signal if there is high-contrast, saturated amber/orange light. If a light is dim, greyish, or indistinguishable from the car's paint in low light, label "none".
+- SEGMENT TERMINATION: A signal segment must end immediately if:
+    * The amber light stops flashing (remains dark for >1.5 seconds/6 frames).
+    * OCCLUSION: The light housing is blocked by another vehicle or moves out of frame. Do not predict through solid occlusion.
+- DUAL-ZONE EVALUATION: Cross-reference both zones across the temporal sequence.
+    * Synchronized flashing on both sides = "hazard".
+    * Unilateral flashing (one side dark/static) = "left" or "right".
+- TEMPORAL PERSISTENCE: Bridge the "off" moments within a repeating cycle. A segment requires a "Last Visible Flash" anchor. Truncate the segment to the last frame where amber light was actually visible.
+- REFLECTION FILTERING: Ignore static glints or sensor noise. Active signals require a clear, repeating temporal delta (on-to-off transitions).
+
+### OUTPUT FORMAT (STRICT)
+Respond with ONLY a single JSON object. No markdown, no preamble.
+
+JSON SCHEMA:
+{
+  "segments": [
+    {"label": "none|left|right|hazard", "start_frame": 0, "end_frame": X}
+  ],
+  "reasoning": "Briefly note side and evidence (e.g., 'Rhythmic amber flash on viewer's right of plate' or 'Termination due to occlusion')."
+}
+
+### REASONING FOR FAILURES TO AVOID:
+- Spatial Inversion: Never label activity on the right side of the plate as "left". 
+- Stale Predictions: Do not let a label "bleed" into frames where the car is occluded. If the evidence is gone, the label is "none".
+- Phantom Signals: Do not label signals based on faint pixel changes or noise. If you have to "guess," the answer is "none".
+- Unilateral Bias: Always check the opposite side to distinguish Hazard from Turn signals.

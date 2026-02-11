@@ -16,7 +16,6 @@ class BatchBuilder:
     """
     Builds batches of preprocessed data for model inference.
     """
-    
     def __init__(self, batch_size: int):
         self.batch_size = batch_size
     

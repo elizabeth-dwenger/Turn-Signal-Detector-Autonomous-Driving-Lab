@@ -1,0 +1,59 @@
+### SYSTEM TASK
+Analyze the provided 10 FPS video to detect vehicle turn signals. You must achieve 100% spatial accuracy. High-accuracy detection requires anchoring every observation to the license plate and comparing BOTH sides of the vehicle simultaneously to avoid "Right-side bias."
+
+### SPATIAL ANCHORING (MANDATORY)
+1. THE ANCHOR: Locate the license plate. This is your "Zero Point."
+2. LEFT: Any illumination to the LEFT of the license plate in the image frame.
+3. RIGHT: Any illumination to the RIGHT of the license plate in the image frame.
+4. ANGLED VEHICLES: If the vehicle is angled (e.g., facing 45 degrees), ignore the "driver's side" logic. Strictly use the screen's left and right relative to the license plate.
+
+### SIGNAL DETECTION RULES
+- AMBER VS REFLECTION: Only label a signal if the light is significantly more intense/orange than the surrounding environment. Ignore faint glares or static red lights.
+- BLINKING (10 FPS): A signal is active if it flashes ON (frames 1-5) and OFF (frames 6-10). The ENTIRE duration (ON+OFF) must be one single segment.
+- HAZARD CHECK: Before labeling "Left" or "Right," you MUST check the opposite side. If both sides flash in sync, you MUST label it "hazard."
+
+### MANDATORY VISUAL SCRATCHPAD
+Before the JSON, you must fill out this checklist for every state change:
+- Frame Range: [X to Y]
+- License Plate Position: [e.g., Center-Right]
+- Left Housing State: [e.g., Dark / High-intensity Amber / Static Red]
+- Right Housing State: [e.g., Dark / High-intensity Amber / Static Red]
+- Sync Check: Are both sides flashing at the same time? (Yes/No)
+
+MANDATORY COORDINATE CHECK
+- You must report the pixel X-coordinate of:
+  1. The license plate center
+  2. The brightest amber region on the left side
+  3. The brightest amber region on the right side
+- A signal is LEFT if signal_x < plate_x
+- A signal is RIGHT if signal_x > plate_x
+
+### OUTPUT FORMAT
+Provide the Scratchpad first, then a single JSON object.
+
+JSON RULES:
+- FPS: 10
+- Coverage: Frame 0 to Final Frame (gapless).
+- Labels: "none", "left", "right", "hazard".
+
+### EXAMPLES
+
+Example 1 (Hazards):
+Scratchpad:
+- Frame Range: 0-14
+- Plate Position: Center
+- Left Housing State: Flashing high-intensity amber
+- Right Housing State: Flashing high-intensity amber (synchronized)
+- Sync Check: Yes
+JSON: {"segments": [{"label": "hazard", "start_frame": 0, "end_frame": 13, "confidence": 0.98}]}
+
+Example 2 (Left Signal on Angled Vehicle):
+Scratchpad:
+- Frame Range: 0-11
+- Plate Position: Right-side of the car body
+- Left Housing State: Flashing amber (further left in frame)
+- Right Housing State: Dark
+- Sync Check: No
+JSON: {"segments": [{"label": "left", "start_frame": 0, "end_frame": 10, "confidence": 0.95}]}
+
+ANALYZE THE VIDEO AND PROVIDE YOUR SCRATCHPAD AND JSON NOW.

@@ -1,0 +1,75 @@
+# TURN SIGNAL DETECTION - SINGLE FRAME ANALYSIS
+
+You are analyzing a single frame from a 10 FPS dashboard camera. Determine if turn signals are active in THIS frame.
+
+## YOUR TASK
+
+1. **Find the license plate** - your spatial reference point
+2. **Check LEFT of plate**: Is there bright amber/orange light from the turn signal?
+3. **Check RIGHT of plate**: Is there bright amber/orange light from the turn signal?
+4. **Decide the state**: What's happening in this specific frame?
+
+## VISUAL CUES FOR ACTIVE SIGNALS
+
+**Amber is ON when:**
+- Bright, saturated orange/yellow glow
+- Clearly brighter than surroundings
+- Located in the rear corner turn signal housing
+
+**Amber is OFF when:**
+- Dark, dim, or barely visible
+- Same brightness as the rest of the tail light assembly
+- No orange glow present
+
+**Red brake lights are NOT turn signals** - ignore them completely.
+
+## LABELS
+
+- **"left"**: Left side has bright amber, right doesn't
+- **"right"**: Right side has bright amber, left doesn't
+- **"hazard"**: Both sides have bright amber (could be hazard if pattern continues)
+- **"none"**: Unclear, occluded, or only red lights visible
+
+## OUTPUT FORMAT
+{
+  "label": "left|right|hazard|none",
+  "confidence": 0.95,
+  "left_state": "on|off|unclear",
+  "right_state": "on|off|unclear",
+  "reasoning": "Brief description of what you see"
+}
+
+## EXAMPLES
+
+**Left turn signal active:**
+{
+  "label": "left",
+  "confidence": 0.93,
+  "left_state": "on",
+  "right_state": "off",
+  "reasoning": "Bright amber glow on left side, right side dark"
+}
+
+**Both signals active (potential hazard):**
+{
+  "label": "hazard",
+  "confidence": 0.97,
+  "left_state": "on",
+  "right_state": "on",
+  "reasoning": "Both sides show bright amber illumination"
+}
+
+**Signals off:**
+{
+  "label": "both_off",
+  "confidence": 0.91,
+  "left_state": "off",
+  "right_state": "off",
+  "reasoning": "No amber visible, only red brake lights"
+}
+
+## IMPORTANT
+
+- Focus on brightness NOW, not patterns over time
+- Amber must be clearly bright to count as "on"
+- When in doubt between on/off, label as "none"

@@ -1,0 +1,75 @@
+### SYSTEM TASK
+Analyze the provided 10 FPS video to detect vehicle turn signals with 100% spatial accuracy. You MUST anchor every decision to the license plate and compare BOTH sides simultaneously.
+
+### SPATIAL ANCHORING (MANDATORY)
+1. Locate the license plate (your "Zero Point").
+2. LEFT = any illumination strictly LEFT of the plate in the image frame.
+3. RIGHT = any illumination strictly RIGHT of the plate in the image frame.
+4. If the vehicle is angled, IGNORE driver/passenger side and use only screen-left vs screen-right.
+
+### SIGNAL QUALIFICATION (MANDATORY)
+A light may be considered a turn signal ONLY if ALL are true:
+- Color: Clearly saturated amber/orange (not red, not white, not mixed).
+- Source: Comes from a turn-signal housing (rear corner cluster), not reflections.
+- Temporal: Shows clear ON frames and clear OFF frames.
+
+If ANY condition fails, that side is considered "inactive".
+
+### TEMPORAL ANALYSIS
+- A blink cycle must show at least:
+  • 1 ON frame
+  • followed by 1 OFF frame
+- Static amber on multiple frames is NOT blinking.
+- Brake lights turning on/off do NOT count as blinking.
+
+### DECISION RULES (ORDERED, DO NOT SKIP)
+1. Evaluate LEFT side independently → active or inactive.
+2. Evaluate RIGHT side independently → active or inactive.
+3. ONLY AFTER BOTH sides are evaluated, assign a label.
+
+### HAZARD GATING (ANTI-OVERPREDICTION)
+Label "hazard" ONLY IF ALL conditions are met:
+- LEFT is active AND RIGHT is active.
+- Both sides are amber/orange (not red).
+- Their ON frames overlap for at least one full blink cycle.
+- Their OFF frames also overlap (same blink phase).
+- Brightness and timing are approximately symmetric.
+
+If both sides blink but are NOT phase-aligned → NOT hazard.
+
+### TURN SIGNAL LABELING
+- LEFT only active → label "left"
+- RIGHT only active → label "right"
+
+### NONE LABEL (CONSERVATIVE DEFAULT)
+Label "none" if:
+- No side meets signal qualification
+- Only red brake lights are present
+- Amber appears on both sides but is static, weak, or asynchronous
+
+### OUTPUT FORMAT (STRICT)
+Respond with ONLY a single JSON object. No scratchpad, no markdown, no extra text.
+You MAY include a short "reasoning" field inside the JSON.
+
+JSON RULES:
+- FPS: 10
+- Coverage: Frame 0 to Final Frame (gapless)
+- Labels: "none", "left", "right", "hazard"
+- Use the minimal number of segments; only change labels when the signal state truly changes.
+
+JSON SCHEMA:
+{
+  "segments": [
+    {"label": "none|left|right|hazard", "start_frame": 0, "end_frame": 0, "confidence": 0.0}
+  ],
+  "reasoning": "optional short explanation"
+}
+
+### EXAMPLES
+Example 1 (True Hazards):
+{"segments": [{"label": "hazard", "start_frame": 0, "end_frame": 13, "confidence": 0.98}],
+ "reasoning": "Left and right amber signals blink in the same on/off frames with similar intensity."}
+
+Example 2 (Not Hazard – Asynchronous):
+{"segments": [{"label": "left", "start_frame": 0, "end_frame": 10, "confidence": 0.94}],
+ "reasoning": "Right side shows no phase-aligned amber blinking."}

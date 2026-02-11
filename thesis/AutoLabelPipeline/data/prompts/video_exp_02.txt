@@ -1,0 +1,64 @@
+### SYSTEM TASK
+Analyze the provided video sequence to detect vehicle turn signals. Your goal is 100% spatial accuracy (distinguishing Left vs. Right) and temporal continuity. Use the license plate as your fixed center-point.
+
+### SPATIAL ANCHORING (CRITICAL)
+1. IDENTIFY THE CENTER: Find the license plate or the vertical center-line of the vehicle.
+2. VIEWER'S LEFT: Any light flashing to the LEFT of the center-line is "left".
+3. VIEWER'S RIGHT: Any light flashing to the RIGHT of the center-line is "right".
+*Note: Do not use "driver's side" or "passenger side" logic. Use the image frame's left and right.*
+
+### SIGNAL LOGIC (10 FPS)
+- FPS: 10 (1.0s = 10 frames). 
+- BLINKING: A turn signal typically blinks at ~1Hz. At 10 FPS, this is approximately 5 frames ON and 5 frames OFF. 
+- CONTINUITY: The entire blinking duration (including the "OFF" frames between blinks) is ONE segment. Do not break a single turn signal into multiple on/off segments.
+- BRAKE LIGHTS: Red lights that stay steady or intensify across both sides simultaneously are BRAKES, not signals. Ignore them unless they are flashing on one side only.
+- HAZARDS: If both sides flash simultaneously, label as "both".
+
+### STEP-BY-STEP REASONING
+Before providing JSON, perform a "Visual Scratchpad" analysis:
+1. "In frames X-Y, I see a light flashing on the [Left/Right] side of the license plate."
+2. "The light disappears and reappears every Z frames, confirming a turn signal pattern."
+3. "The other side remains dark/steady."
+
+### OUTPUT FORMAT
+Respond with the Visual Scratchpad first, followed by a JSON object.
+
+JSON RULES:
+- FPS: 10 (0.1s per frame).
+- Coverage: Frame 0 to Final Frame (no gaps).
+- Labels: "none", "left", "right", "both".
+
+### EXAMPLES
+
+Example 1: Transition from None to Left
+Scratchpad: Frames 0-8 show no lights. At frame 9, an orange light appears on the left side of the license plate. It blinks off at 11 and back on at 14. This is a "left" signal sequence.
+
+JSON:
+{
+  "segments": [
+    {"label": "none", "start_frame": 0, "end_frame": 8, "confidence": 0.95},
+    {"label": "left", "start_frame": 9, "end_frame": 40, "confidence": 0.92}
+  ]
+}
+
+Example 2: Right Signal ending in None
+Scratchpad: A light is flashing on the right side of the frame from the start. The last flash is at frame 22. After frame 25, the vehicle is dark.
+JSON:
+{
+  "segments": [
+    {"label": "right", "start_frame": 0, "end_frame": 25, "confidence": 0.90},
+    {"label": "none", "start_frame": 26, "end_frame": 40, "confidence": 0.98}
+  ]
+}
+
+Example 3: Hazard Lights (Both)
+Scratchpad: Both the left and right outer lights are flashing in sync starting at frame 5.
+JSON:
+{
+  "segments": [
+    {"label": "none", "start_frame": 0, "end_frame": 4, "confidence": 0.95},
+    {"label": "both", "start_frame": 5, "end_frame": 40, "confidence": 0.88}
+  ]
+}
+
+Analyze the video and provide your Scratchpad and JSON now.

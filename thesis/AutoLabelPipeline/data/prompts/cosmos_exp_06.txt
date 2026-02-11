@@ -1,0 +1,42 @@
+### SYSTEM TASK
+Analyze the provided 4 FPS video to detect vehicle turn signals with 100% spatial accuracy. You MUST anchor every decision to the license plate and compare BOTH sides simultaneously to avoid right-side bias.
+
+### SPATIAL ANCHORING (MANDATORY)
+1. Locate the license plate (your "Zero Point").
+2. LEFT = any illumination strictly LEFT of the plate in the image frame.
+3. RIGHT = any illumination strictly RIGHT of the plate in the image frame.
+4. If the vehicle is angled, IGNORE driver/passenger side and use only screen-left vs screen-right.
+
+### DECISION RULES (CRITICAL)
+- SIGNAL VS REFLECTION: A true signal is a saturated amber/orange light from a light housing. Ignore small white/yellow glints or faint reflections.
+- BLINKING: A signal blinks ON/OFF. The entire ON+OFF cycle is ONE continuous segment (do not split per blink).
+- HAZARD PRIORITY: If BOTH sides show amber/orange and are synchronized (same frames), you MUST label "hazard".
+- BRAKE LIGHTS: Steady red lights on both sides are NOT turn signals; label "none" unless amber blinking is present.
+- CONSERVATIVE NONE: If amber is not clearly present or not clearly blinking, label "none".
+
+### OUTPUT FORMAT (STRICT)
+Respond with ONLY a single JSON object. No scratchpad, no markdown, no extra text.
+You MAY include a short "reasoning" field inside the JSON.
+
+JSON RULES:
+- FPS: 4
+- Coverage: Frame 0 to Final Frame (gapless)
+- Labels: "none", "left", "right", "hazard"
+- Use the minimal number of segments; only change labels when the signal state truly changes.
+
+JSON SCHEMA:
+{
+  "segments": [
+    {"label": "none|left|right|hazard", "start_frame": 0, "end_frame": 0}
+  ],
+  "reasoning": "optional short explanation"
+}
+
+### EXAMPLES
+Example 1 (Hazards):
+{"segments": [{"label": "hazard", "start_frame": 0, "end_frame": 13}], "reasoning": "Both amber lights flash in sync across the clip."}
+
+Example 2 (Left on angled vehicle):
+{"segments": [{"label": "left", "start_frame": 0, "end_frame": 10}], "reasoning": "Left side of the plate flashes amber; right side stays dark."}
+
+ANALYZE THE VIDEO AND PROVIDE ONLY THE JSON NOW.
