@@ -471,7 +471,7 @@ def compare_prompts(comparison_dir: str):
             'Prompt': Path(data['prompt_file']).stem,
             'Timestamp': data['timestamp'],
             'Sequences': data['num_sequences'],
-            'Accuracy': f"{data['accuracy']:.1%}" if data['accuracy'] else "N/A",
+            'Frame Accuracy': f"{data.get('frame_metrics', {}).get('accuracy', 0):.1%}" if data.get('frame_metrics') else "N/A",
             'Frame Macro F1': f"{data.get('frame_metrics', {}).get('macro_f1', 0):.3f}" if data.get('frame_metrics') else "N/A",
             'Event F1': f"{data.get('event_metrics', {}).get('f1', 0):.3f}" if data.get('event_metrics') else "N/A",
             'F1 Left': f"{per_class.get('left', {}).get('f1', 0):.2f}" if per_class else "N/A",
@@ -588,7 +588,7 @@ def compare_prompts_all(root_dir: str):
             "timestamp": timestamp,
             "timestamp_dt": parsed_ts,
             "sequences": data.get('num_sequences', 0),
-            "accuracy": data.get('accuracy', None),
+            "frame_accuracy": data.get('frame_metrics', {}).get('accuracy', None) if data.get('frame_metrics') else None,
             "frame_macro_f1": data.get('frame_metrics', {}).get('macro_f1', None) if data.get('frame_metrics') else None,
             "event_f1": data.get('event_metrics', {}).get('f1', None) if data.get('event_metrics') else None,
             "f1_left": per_class.get('left', {}).get('f1', None) if per_class else None,
@@ -608,17 +608,17 @@ def compare_prompts_all(root_dir: str):
     df = df.sort_values(["model_display", "timestamp_dt", "timestamp"], ascending=[True, True, True])
     df["exp_id"] = df.groupby("model_display").cumcount().map(lambda i: f"exp_{i}")
 
-    # Order models by best accuracy (desc), then order within model by accuracy (desc)
+    # Order models by best frame accuracy (desc), then order within model by frame accuracy (desc)
     def _acc_value(val):
         return val if isinstance(val, (int, float)) else -1.0
 
-    best_acc = df.groupby("model_display")["accuracy"].apply(lambda s: max((_acc_value(v) for v in s), default=-1.0))
+    best_acc = df.groupby("model_display")["frame_accuracy"].apply(lambda s: max((_acc_value(v) for v in s), default=-1.0))
     model_order = best_acc.sort_values(ascending=False).index.tolist()
 
     df["model_order"] = df["model_display"].apply(
         lambda m: model_order.index(m) if m in model_order else len(model_order)
     )
-    df["accuracy_sort"] = df["accuracy"].apply(_acc_value)
+    df["accuracy_sort"] = df["frame_accuracy"].apply(_acc_value)
 
     df = df.sort_values(
         ["model_order", "accuracy_sort", "timestamp_dt", "timestamp"],
@@ -630,7 +630,7 @@ def compare_prompts_all(root_dir: str):
         [
             "timestamp",
             "sequences",
-            "accuracy",
+            "frame_accuracy",
             "frame_macro_f1",
             "event_f1",
             "f1_left",
@@ -647,7 +647,7 @@ def compare_prompts_all(root_dir: str):
     display_table = display_table.rename(columns={
         "timestamp": "Timestamp",
         "sequences": "Sequences",
-        "accuracy": "Accuracy",
+        "frame_accuracy": "Frame Accuracy",
         "frame_macro_f1": "Frame Macro F1",
         "event_f1": "Event F1",
         "f1_left": "F1 Left",
