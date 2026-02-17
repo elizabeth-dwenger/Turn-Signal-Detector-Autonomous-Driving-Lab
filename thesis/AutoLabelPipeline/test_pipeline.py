@@ -11,6 +11,7 @@ from tqdm import tqdm
 import json
 import numpy as np
 from typing import List, Tuple, Dict
+from datetime import datetime
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent / 'src'))
@@ -222,7 +223,8 @@ def _get_frame_ids_for_video(sequence, preprocessor, use_crops: bool = True,
 
 
 def test_pipeline(config_path: str, num_sequences: int = 10,
-                  sequence_ids: list = None, verbose: bool = False):
+                  sequence_ids: list = None, verbose: bool = False,
+                  comparison_group: str = None):
     """
     Run pipeline on small test set.
     """
@@ -241,6 +243,7 @@ def test_pipeline(config_path: str, num_sequences: int = 10,
         set_random_seeds(config.experiment.random_seed)
         target_fps = config.model.model_kwargs.get('target_video_fps')
         config.model.model_kwargs['video_fps'] = target_fps or config.data.video_fps
+        run_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         print("Step 3: Configuration loaded successfully!")
     except Exception as e:
         print(f" Failed to load configuration: {e}")
@@ -280,7 +283,6 @@ def test_pipeline(config_path: str, num_sequences: int = 10,
         print(f"\n  Testing on first {num_sequences} sequences")
     
     # Create timestamped test output directory
-    from datetime import datetime
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     model_name = config.model.type.value
     test_output_dir = Path(config.experiment.output_dir) / "test_runs" / f"{model_name}_{timestamp}"
@@ -471,6 +473,18 @@ def test_pipeline(config_path: str, num_sequences: int = 10,
     print(f"    Total inferences: {model_metrics['total_inferences']}")
     print(f"    Avg latency: {model_metrics['avg_latency_ms']:.1f} ms")
     print(f"    Parse success: {model_metrics['parse_success_rate']:.1%}")
+
+    # Persist model metrics for post-processing
+    model_metrics_path = Path(config.experiment.output_dir) / "model_metrics.json"
+    model_metrics_out = dict(model_metrics)
+    model_metrics_out.update({
+        "model": config.model.type.value,
+        "inference_mode": config.model.inference_mode.value,
+        "timestamp": run_timestamp
+    })
+    with open(model_metrics_path, "w") as f:
+        json.dump(model_metrics_out, f, indent=2)
+    print(f"  Saved model metrics: {model_metrics_path}")
     
     # Stage 6: Post-processing
     print("\n" + "-"*80)
@@ -719,6 +733,37 @@ def test_pipeline(config_path: str, num_sequences: int = 10,
         print(f"  Event F1: {event_metrics['f1']:.3f}")
     else:
         print("  No ground truth available for evaluation.")
+
+    # Prompt comparison summary (compare_prompts.py compatible)
+    try:
+        prompt_path = config.model.prompt_template_path
+        prompt_name = Path(prompt_path).stem if prompt_path else "default_prompt"
+        model_name = config.model.type.value
+        summary_timestamp = timestamp
+        comparison_dir = Path("prompt_comparison")
+        if comparison_group:
+            comparison_dir = comparison_dir / comparison_group
+        comparison_dir.mkdir(parents=True, exist_ok=True)
+        summary_file = comparison_dir / f"{model_name}_{prompt_name}_{summary_timestamp}_summary.json"
+
+        prompt_summary = {
+            "prompt_file": prompt_path,
+            "timestamp": summary_timestamp,
+            "model": model_name,
+            "inference_mode": config.model.inference_mode.value,
+            "num_sequences": len(processed_results),
+            "accuracy": frame_metrics.get("accuracy") if all_true else None,
+            "metrics": model_metrics,
+            "run_directory": str(config.experiment.output_dir),
+            "frame_metrics": frame_metrics if all_true else None,
+            "event_metrics": event_metrics if all_true else None,
+        }
+
+        with open(summary_file, "w") as f:
+            json.dump(prompt_summary, f, indent=2, default=str)
+        print(f"  Saved prompt comparison summary: {summary_file}")
+    except Exception as e:
+        print(f"   Warning: Failed to save prompt comparison summary: {e}")
     
     # Final summary
     print("\n" + "="*80)
@@ -753,6 +798,8 @@ def main():
                        help='Specific sequence IDs to test')
     parser.add_argument('--verbose', '-v', action='store_true',
                        help='Enable verbose logging')
+    parser.add_argument('--comparison-group', type=str, default=None,
+                       help='Optional subfolder under prompt_comparison for summary output')
     
     args = parser.parse_args()
     
@@ -761,7 +808,8 @@ def main():
             args.config,
             num_sequences=args.num_sequences,
             sequence_ids=args.sequences,
-            verbose=args.verbose
+            verbose=args.verbose,
+            comparison_group=args.comparison_group
         )
         sys.exit(0)
     except KeyboardInterrupt:

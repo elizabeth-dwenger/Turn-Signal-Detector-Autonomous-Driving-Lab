@@ -1,0 +1,83 @@
+# Ensemble Configuration Template
+# Use this to configure ensemble experiments
+
+ensemble_experiment:
+  name: "ensemble_experiment_v1"
+  description: "Post-hoc ensemble combining top models from Phase 3"
+  timestamp_tag: true  # Auto-append timestamp to output directory
+
+# Model Selection
+model_selection:
+  results_root: "results/"
+  selection_strategy: "auto"  # "auto" (top N by F1) or "manual" (explicit list)
+  n_top_models: 3
+  
+  # Built-in F1 scores from Phase 3 testing
+  # These are automatically used for model ranking
+  phase_3_f1_scores:
+    qwen3_vl_single/exp_5: 0.574
+    cosmos_reason2_video/exp_2: 0.465
+    cosmos_reason1_video/exp_5: 0.538
+    qwen25_vl_video/exp_5: 0.527
+    qwen3_vl_video/exp_1: 0.405
+  
+  # If selection_strategy == "manual", explicitly list models here
+  manual_models: []
+    # - "qwen3_vl_single/exp_5"
+    # - "cosmos_reason2_video/exp_2"
+    # - "cosmos_reason1_video/exp_5"
+
+# Voting Mechanisms
+voters_to_test:
+  majority_vote:
+    enabled: true
+    params:
+      tie_break_method: "confidence"
+
+# Data Loading & Normalization
+ensemble_loader:
+  label_harmonization: true   # Normalize labels (e.g., "both" -> "hazard")
+  calibrate_confidence: false # Apply post-hoc confidence calibration
+  
+  # How to handle frames missing from one model
+  handle_missing_frames: "exclude"  # "exclude" or "abstain"
+  
+  # Strategy for converting video model segments to per-frame predictions
+  segment_to_frame_strategy: "uniform"  # "uniform" or "interpolate"
+
+# Evaluation & Analysis
+evaluation:
+  compute_per_label_metrics: true  # F1, precision, recall per label
+  compute_confusion_matrix: true
+  export_disagreement_log: true    # Detailed disagreement records
+  
+  # Disagreement analysis thresholds
+  disagreement_entropy_threshold: 0.5
+  high_disagreement_percentile: 75
+
+# Output Options
+output:
+  output_dir: "ensemble_experiments/"
+  save_ensemble_predictions: true  # CSV with ensemble predictions
+  save_individual_predictions: false  # Save loaded individual predictions
+  save_disagreement_log: true
+  save_model_comparison: true
+  generate_plots: true
+  
+  formats:
+    - "csv"    # Ensemble predictions CSV
+    - "json"   # Metadata and analysis results
+
+# Logging
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  file: null     # Auto-generate log file path if null
+  verbose: false
+
+# Ground Truth (Optional)
+ground_truth:
+  csv_path: null  # Path to ground truth CSV if evaluating
+  columns:
+    sequence_id: "sequence_id"
+    frame_id: "frame_id"
+    label: "label"

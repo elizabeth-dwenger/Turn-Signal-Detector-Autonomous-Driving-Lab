@@ -37,7 +37,7 @@ model:
   temperature: 0.0
   top_p: 1.0
   do_sample: false
-  prompt_template_path: "data/prompts/TEST_COSMOS.txt"
+  prompt_template_path: "data/prompts/cosmos_exp_05.txt"
   
   
   model_kwargs:
