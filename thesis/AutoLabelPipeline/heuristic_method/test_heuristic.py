@@ -10,25 +10,76 @@ import argparse
 from pathlib import Path
 import json
 import logging
+import yaml
 from tqdm import tqdm
 from datetime import datetime
 from typing import List, Dict, Optional
+import os
 
 # Add src to path for data loading utilities
 sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 
-from utils.config import load_config, set_random_seeds
 from data import (
     load_dataset_from_config,
     create_image_loader,
     SequencePreprocessor
 )
+from data.data_structures import Dataset
+from data.csv_loader import CSVLoader
 
 # Handle both module import and direct script execution
 try:
     from .heuristic_detector import HeuristicDetector
 except ImportError:
     from heuristic_detector import HeuristicDetector
+
+
+class HeuristicConfig:
+    """
+    Lightweight config loader for heuristic method.
+    Only loads data and preprocessing sections, avoiding model requirements.
+    """
+    def __init__(self, config_path: str):
+        with open(config_path, 'r') as f:
+            raw = yaml.safe_load(f)
+        
+        self.data = self._make_data_config(raw.get('data', {}))
+        self.preprocessing = self._make_preprocessing_config(raw.get('preprocessing', {}))
+        
+        # Extract video_fps for heuristic use
+        self.video_fps = raw.get('data', {}).get('video_fps', 10)
+        
+        # Try to get target_video_fps from model_kwargs if present
+        model_kwargs = raw.get('model', {}).get('model_kwargs', {})
+        self.target_video_fps = model_kwargs.get('target_video_fps', None)
+    
+    def _make_data_config(self, data_dict: dict):
+        """Create a simple namespace for data config."""
+        class DataConfig:
+            pass
+        cfg = DataConfig()
+        cfg.input_csv = data_dict.get('input_csv', '')
+        cfg.crop_base_dir = data_dict.get('crop_base_dir', '')
+        cfg.frame_base_dir = data_dict.get('frame_base_dir', None)
+        cfg.max_sequences = data_dict.get('max_sequences', None)
+        cfg.sequence_filter = data_dict.get('sequence_filter', None)
+        cfg.video_fps = data_dict.get('video_fps', 10)
+        return cfg
+    
+    def _make_preprocessing_config(self, preproc_dict: dict):
+        """Create a simple namespace for preprocessing config."""
+        class PreprocessingConfig:
+            pass
+        cfg = PreprocessingConfig()
+        cfg.resize_resolution = preproc_dict.get('resize_resolution', [640, 480])
+        cfg.normalize = preproc_dict.get('normalize', True)
+        cfg.maintain_aspect_ratio = preproc_dict.get('maintain_aspect_ratio', True)
+        cfg.padding_color = preproc_dict.get('padding_color', [0, 0, 0])
+        cfg.max_sequence_length = preproc_dict.get('max_sequence_length', None)
+        cfg.sequence_stride = preproc_dict.get('sequence_stride', 1)
+        cfg.enable_chunking = preproc_dict.get('enable_chunking', True)
+        cfg.chunk_size = preproc_dict.get('chunk_size', 50)
+        return cfg
 
 
 def setup_logging(verbose: bool = False):
@@ -272,27 +323,22 @@ def test_heuristic(
     Run heuristic detector on test sequences.
     
     Produces output format compatible with compare_prompts.py.
-    
-    Args:
-        config_path: Path to pipeline config YAML
-        test_sequences_file: JSON file with sequence_ids to test
-        output_dir: Output directory for results
-        verbose: Enable verbose logging
-        fps: Override FPS for detection (default: from config)
-        activity_threshold: Heuristic activity threshold
-        hazard_ratio_threshold: Heuristic hazard ratio threshold
-        
-    Returns:
-        Results dictionary
     """
     setup_logging(verbose)
     logger = logging.getLogger(__name__)
     
-    # Load config
-    config = load_config(config_path)
-    set_random_seeds(config.experiment.random_seed)
-    target_fps = config.model.model_kwargs.get('target_video_fps')
-    effective_fps = target_fps or config.data.video_fps
+    # Load lightweight config (only data and preprocessing, no model required)
+    config = HeuristicConfig(config_path)
+    
+    # Set random seed for reproducibility
+    import random
+    import numpy as np
+    random.seed(42)
+    np.random.seed(42)
+    
+    # Determine effective FPS
+    target_fps = config.target_video_fps
+    effective_fps = target_fps or config.video_fps
     
     # Override FPS if provided
     if fps is not None:
@@ -353,7 +399,7 @@ def test_heuristic(
             continue
         
         try:
-            # Get frame IDs after preprocessing
+            # Get frame IDs after applying stride/max_length (but NOT preprocessing)
             source_fps = config.data.video_fps
             frame_ids = _get_frame_ids_for_video(
                 sequence,
@@ -368,15 +414,24 @@ def test_heuristic(
             stride = max(1, preprocessor.stride)
             event_fps = effective_fps / stride
             
-            # Get preprocessed video tensor
-            video, actual_frame_ids = preprocessor.preprocess_for_video_with_ids(
-                sequence,
-                source_fps=source_fps,
-                target_fps=target_fps
-            )
+            # Get RAW images (not normalized) for heuristic analysis
+            # The heuristic needs uint8 RGB images, not normalized float tensors
+            frame_id_set = set(frame_ids)
+            raw_images = []
+            actual_frame_ids = []
+            for f in sequence.frames:
+                if f.crop_image is not None and f.frame_id in frame_id_set:
+                    # crop_image is already loaded as uint8 RGB by image_loader
+                    raw_images.append(f.crop_image.copy())
+                    actual_frame_ids.append(f.frame_id)
             
-            # Run heuristic detection
-            prediction = detector.predict_video(video)
+            # Sort by frame_id to maintain temporal order
+            sorted_pairs = sorted(zip(actual_frame_ids, raw_images), key=lambda x: x[0])
+            actual_frame_ids = [p[0] for p in sorted_pairs]
+            raw_images = [p[1] for p in sorted_pairs]
+            
+            # Run heuristic detection on RAW images
+            prediction = detector.predict_sequence(raw_images)
             
             # Convert to frame predictions for metrics
             frame_preds = _segments_to_frames(prediction, actual_frame_ids, effective_fps)

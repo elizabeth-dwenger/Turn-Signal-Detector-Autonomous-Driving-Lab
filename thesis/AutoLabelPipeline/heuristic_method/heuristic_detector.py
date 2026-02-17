@@ -45,12 +45,6 @@ class HeuristicDetector:
     def isolate_yellow_channel(self, image: np.ndarray) -> np.ndarray:
         """
         Isolate yellow pixels using HSV color space.
-        
-        Args:
-            image: RGB image array
-            
-        Returns:
-            Binary mask of yellow pixels
         """
         hsv = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
         mask = cv2.inRange(hsv, (15, 100, 100), (35, 255, 255))
@@ -131,13 +125,6 @@ class HeuristicDetector:
     ) -> Tuple[int, int, int, int]:
         """
         Detect region of interest for left or right rear lamp.
-        
-        Args:
-            image: Image array
-            side: 'left', 'right', or 'both'
-            
-        Returns:
-            ROI as (x1, y1, x2, y2)
         """
         h, w = image.shape[:2]
         y1, y2 = int(h * 0.4), h
@@ -323,9 +310,6 @@ class HeuristicDetector:
     def get_metrics(self) -> Dict:
         """
         Get performance metrics compatible with VLM pipeline.
-        
-        Returns:
-            Dict with avg_latency_ms, parse_success_rate, total_predictions
         """
         avg_latency = np.mean(self._latencies) * 1000 if self._latencies else 0.0
         parse_rate = self._parse_successes / max(self._predictions_count, 1)
@@ -346,12 +330,6 @@ class HeuristicDetector:
 def load_images_from_paths(image_paths: List[str]) -> List[np.ndarray]:
     """
     Load images from file paths.
-    
-    Args:
-        image_paths: List of image file paths
-        
-    Returns:
-        List of RGB image arrays (None for failed loads)
     """
     images = []
     for path in image_paths:
