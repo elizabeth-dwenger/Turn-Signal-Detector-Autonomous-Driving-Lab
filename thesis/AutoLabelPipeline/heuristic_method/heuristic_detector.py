@@ -19,15 +19,33 @@ class HeuristicDetector:
     def __init__(
         self,
         fps: float = 5.0,
-        activity_threshold: float = 6200.0,
-        hazard_ratio_threshold: float = 0.7,
+        activity_threshold: float = 5500.0,  
+        hazard_ratio_threshold: float = 0.9,
         freq_min: float = 1.0,
         freq_max: float = 2.5,
         peak_power_multiplier: float = 3.0,
-        variance_threshold: float = 0.05
+        variance_threshold: float = 0.05,
+        # HSV color range for yellow/orange detection
+        hue_min: int = 20,
+        hue_max: int = 45,
+        sat_min: int = 100,
+        sat_max: int = 255,
+        val_min: int = 100,
+        val_max: int = 255,
+        # Additional hazard detection parameters
+        min_hazard_activity: float = 10000.0,  # Very high to prevent false hazards
+        roi_split: float = 0.4,  # Left ROI: [0, roi_split], Right ROI: [1-roi_split, 1]
+        max_ratio_for_directional: float = 0.3,  # Ratio must be below this for left/right
+        require_periodicity: bool = False,  # Require FFT-detected periodicity for non-none
+        min_cv: float = 0.0  # Disabled - CV doesn't help (none has higher CV than signals)
     ):
         """
         Initialize the heuristic detector.
+        
+        HSV ranges for turn signal detection:
+        - Hue: 0-179 in OpenCV (15-35 = yellow/orange, 0-15 = red/orange)
+        - Saturation: 0-255 (higher = more colorful)
+        - Value: 0-255 (higher = brighter)
         """
         self.fps = fps
         self.activity_threshold = activity_threshold
@@ -37,6 +55,21 @@ class HeuristicDetector:
         self.peak_power_multiplier = peak_power_multiplier
         self.variance_threshold = variance_threshold
         
+        # HSV color thresholds
+        self.hue_min = hue_min
+        self.hue_max = hue_max
+        self.sat_min = sat_min
+        self.sat_max = sat_max
+        self.val_min = val_min
+        self.val_max = val_max
+        
+        # Additional hazard detection parameters
+        self.min_hazard_activity = min_hazard_activity
+        self.roi_split = roi_split
+        self.max_ratio_for_directional = max_ratio_for_directional
+        self.require_periodicity = require_periodicity
+        self.min_cv = min_cv
+        
         # Track metrics for compatibility with VLM pipeline
         self._latencies = []
         self._predictions_count = 0
@@ -44,10 +77,14 @@ class HeuristicDetector:
     
     def isolate_yellow_channel(self, image: np.ndarray) -> np.ndarray:
         """
-        Isolate yellow pixels using HSV color space.
+        Isolate yellow/orange pixels using HSV color space.
         """
         hsv = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
-        mask = cv2.inRange(hsv, (15, 100, 100), (35, 255, 255))
+        mask = cv2.inRange(
+            hsv,
+            (self.hue_min, self.sat_min, self.val_min),
+            (self.hue_max, self.sat_max, self.val_max)
+        )
         return mask
     
     def extract_yellow_intensity_series(
@@ -125,14 +162,15 @@ class HeuristicDetector:
     ) -> Tuple[int, int, int, int]:
         """
         Detect region of interest for left or right rear lamp.
+        Uses self.roi_split to define boundaries.
         """
         h, w = image.shape[:2]
         y1, y2 = int(h * 0.4), h
         
         if side == 'left':
-            x1, x2 = 0, int(w * 0.4)
+            x1, x2 = 0, int(w * self.roi_split)
         elif side == 'right':
-            x1, x2 = int(w * 0.6), w
+            x1, x2 = int(w * (1 - self.roi_split)), w
         else:
             x1, x2 = 0, w
         
@@ -174,10 +212,16 @@ class HeuristicDetector:
         # Check if blinking detected
         intensity_std = np.std(intensities)
         intensity_mean = np.mean(intensities)
-        is_blinking = (
-            periodic_result['is_periodic'] or
-            (intensity_mean > 0 and intensity_std > intensity_mean * self.variance_threshold)
-        )
+        
+        if self.require_periodicity:
+            # Strict mode: only trust FFT-detected periodicity
+            is_blinking = periodic_result['is_periodic']
+        else:
+            # Relaxed mode: also consider high variance as potential blinking
+            is_blinking = (
+                periodic_result['is_periodic'] or
+                (intensity_mean > 0 and intensity_std > intensity_mean * self.variance_threshold)
+            )
         
         if not is_blinking:
             self._parse_successes += 1
@@ -200,6 +244,13 @@ class HeuristicDetector:
         left_activity = float(np.std(left_intensity))
         right_activity = float(np.std(right_intensity))
         
+        # Compute coefficient of variation (CV = std/mean)
+        left_mean = float(np.mean(left_intensity))
+        right_mean = float(np.mean(right_intensity))
+        left_cv = left_activity / left_mean if left_mean > 0 else 0
+        right_cv = right_activity / right_mean if right_mean > 0 else 0
+        max_cv = max(left_cv, right_cv)
+        
         # Minimum activity threshold
         max_activity = max(left_activity, right_activity)
         if max_activity < self.activity_threshold:
@@ -212,18 +263,40 @@ class HeuristicDetector:
                 'reasoning': f'Activity below threshold. Left: {left_activity:.1f}, Right: {right_activity:.1f}, Threshold: {self.activity_threshold}'
             }
         
+        # Check coefficient of variation (filters out constant lights)
+        if self.min_cv > 0 and max_cv < self.min_cv:
+            self._parse_successes += 1
+            self._latencies.append(time.time() - start_time)
+            return {
+                'label': 'none',
+                'segments': [],
+                'raw_output': 'heuristic',
+                'reasoning': f'CV below threshold (constant light). Max CV: {max_cv:.3f}, Threshold: {self.min_cv}'
+            }
+        
         # Determine signal type
         ratio = min(left_activity, right_activity) / max_activity
+        min_activity = min(left_activity, right_activity)
         
-        if ratio > self.hazard_ratio_threshold:
+        # For hazard: both sides must be active AND similar
+        if ratio > self.hazard_ratio_threshold and min_activity >= self.min_hazard_activity:
             predicted = 'hazard'
-            reasoning = f'Both sides blinking similarly (ratio={ratio:.2f})'
+            reasoning = f'Both sides blinking similarly (ratio={ratio:.2f}, min_activity={min_activity:.1f})'
+        # For directional: require clear asymmetry (ratio below threshold)
+        elif ratio < self.max_ratio_for_directional:
+            if left_activity > right_activity:
+                predicted = 'left'
+                reasoning = f'Left side clearly more active ({left_activity:.1f} >> {right_activity:.1f}, ratio={ratio:.2f})'
+            else:
+                predicted = 'right'
+                reasoning = f'Right side clearly more active ({right_activity:.1f} >> {left_activity:.1f}, ratio={ratio:.2f})'
+        # Ambiguous case: classify based on which side is more active
         elif left_activity > right_activity:
             predicted = 'left'
-            reasoning = f'Left side more active ({left_activity:.1f} > {right_activity:.1f})'
+            reasoning = f'Left side more active ({left_activity:.1f} > {right_activity:.1f}, ratio={ratio:.2f} ambiguous)'
         else:
             predicted = 'right'
-            reasoning = f'Right side more active ({right_activity:.1f} > {left_activity:.1f})'
+            reasoning = f'Right side more active ({right_activity:.1f} > {left_activity:.1f}, ratio={ratio:.2f} ambiguous)'
         
         self._parse_successes += 1
         self._latencies.append(time.time() - start_time)

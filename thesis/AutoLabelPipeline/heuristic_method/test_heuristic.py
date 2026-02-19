@@ -316,7 +316,7 @@ def test_heuristic(
     output_dir: str = "prompt_comparison",
     verbose: bool = False,
     fps: float = None,
-    activity_threshold: float = 6200.0,
+    activity_threshold: float = 1000.0,
     hazard_ratio_threshold: float = 0.7
 ) -> Dict:
     """
@@ -608,8 +608,8 @@ def main():
     parser.add_argument(
         "--activity-threshold",
         type=float,
-        default=6200.0,
-        help="Activity threshold for signal detection (default: 6200)"
+        default=1000.0,
+        help="Activity threshold for signal detection (default: 1000)"
     )
     parser.add_argument(
         "--hazard-ratio",
