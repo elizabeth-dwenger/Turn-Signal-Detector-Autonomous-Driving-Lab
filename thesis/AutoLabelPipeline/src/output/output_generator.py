@@ -21,7 +21,6 @@ class OutputGenerator:
     Orchestrates all output generation.
     Saves predictions, creates visualizations, and generates reports.
     """
-    
     def __init__(self, output_config, experiment_config):
         self.config = output_config
         self.output_dir = Path(experiment_config.output_dir)
@@ -170,7 +169,6 @@ class OutputGenerator:
         return str(report_path)
     
     def _generate_text_report(self, report: Dict, output_path: str):
-        """Generate human-readable text report"""
         with open(output_path, 'w') as f:
             f.write("="*80 + "\n")
             f.write("TURN SIGNAL DETECTION PIPELINE REPORT\n")

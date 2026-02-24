@@ -52,9 +52,6 @@ class JSONFormatter:
     @staticmethod
     def save(predictions: List[Dict], output_path: str,
              metadata: Dict = None, include_raw_output: bool = False):
-        """
-        Save predictions to JSON file.
-        """
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
         
         # Prepare output
@@ -88,9 +85,6 @@ class COCOFormatter:
     @staticmethod
     def save(predictions: List[Dict], output_path: str,
              sequence_info: Dict = None):
-        """
-        Save predictions in COCO format.
-        """
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
         
         # COCO format structure
@@ -157,9 +151,6 @@ class SequenceFormatter:
     @staticmethod
     def save_multiple_sequences(sequences_predictions: Dict[str, List[Dict]],
                                 output_dir: str, format: str = 'json'):
-        """
-        Save predictions for multiple sequences.
-        """
         output_path = Path(output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
         

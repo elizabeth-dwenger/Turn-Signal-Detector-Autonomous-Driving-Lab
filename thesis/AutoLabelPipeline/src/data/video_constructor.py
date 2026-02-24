@@ -16,7 +16,6 @@ class VideoConstructor:
     """
     Constructs video sequences from frames for video-mode inference.
     """
-    
     def __init__(self, preprocessing_config):
         self.config = preprocessing_config
         self.max_length = preprocessing_config.max_sequence_length
@@ -73,7 +72,6 @@ class VideoConstructor:
                                   stride: int = 1, use_crops: bool = True) -> List[Tuple[np.ndarray, int]]:
         """
         Construct overlapping temporal windows from sequence.
-        Useful for models that process fixed-length windows.
         """
         # Get images
         if use_crops:
@@ -110,7 +108,6 @@ class VideoConstructor:
     def get_frame_indices(self, sequence: Sequence) -> List[int]:
         """
         Get which frame indices will be used after stride/max_length.
-        Useful for mapping predictions back to original frames.
         """
         total_frames = len(sequence.frames)
         

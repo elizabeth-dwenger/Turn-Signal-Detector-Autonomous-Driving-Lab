@@ -64,12 +64,6 @@ class TurnSignalDetector(ABC):
     def predict_single(self, image: np.ndarray) -> Dict:
         """
         Predict turn signal state from single image.
-        
-        Args:
-            image: Image tensor (H, W, C) in [0, 1] range
-        
-        Returns:
-            Same format as predict_video
         """
         pass
     

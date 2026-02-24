@@ -22,10 +22,8 @@ class BatchBuilder:
     def batch_sequences(self, sequences: List[Sequence]) -> Iterator[List[Sequence]]:
         """
         Batch sequences for video-mode processing.
-        Note:
-            For video mode, batch_size is typically 1 since each sequence
-            is already a video tensor. But this allows processing multiple
-            sequences in parallel if the model supports it.
+
+        For video mode, batch_size is typically 1 since each sequence is already a video tensor. But this allows processing multiple sequences in parallel if the model supports it.
         """
         for i in range(0, len(sequences), self.batch_size):
             yield sequences[i:i + self.batch_size]
@@ -195,9 +193,6 @@ class DynamicBatcher:
 
 
 def create_batcher(batch_size: int, mode: str = 'simple', **kwargs):
-    """
-    Factory function to create appropriate batcher.
-    """
     if mode == 'simple':
         return BatchBuilder(batch_size)
     elif mode == 'sequence':

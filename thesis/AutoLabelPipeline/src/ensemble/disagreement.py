@@ -15,7 +15,6 @@ logger = logging.getLogger(__name__)
 
 class DisagreementAnalyzer:
     """Analyze disagreements between model predictions"""
-    
     def __init__(self):
         pass
     
@@ -23,13 +22,6 @@ class DisagreementAnalyzer:
                                       ensemble_df: pd.DataFrame = None) -> Dict:
         """
         Compute disagreement metrics across all frames.
-        
-        Args:
-            frame_predictions: Dict[(seq_id, frame_id) -> list of FramePrediction]
-            ensemble_df: Optional ensemble_df with voting distributions
-        
-        Returns:
-            Dict with disagreement statistics
         """
         metrics = {
             "total_frames": len(frame_predictions),
@@ -82,14 +74,6 @@ class DisagreementAnalyzer:
                                       ground_truth: Dict[Tuple, str] = None) -> List[Dict]:
         """
         Identify frames where models disagree above threshold.
-        
-        Args:
-            frame_predictions: Dict[(seq_id, frame_id) -> list of FramePrediction]
-            entropy_threshold: Disagreement threshold
-            ground_truth: Optional ground truth for error classification
-        
-        Returns:
-            List of disagreement records
         """
         disagreements = []
         
@@ -136,12 +120,6 @@ class DisagreementAnalyzer:
     def categorize_patterns(self, disagreement_records: List[Dict]) -> Dict:
         """
         Categorize disagreement patterns.
-        
-        Args:
-            disagreement_records: List of disagreement records from identify_disagreement_frames
-        
-        Returns:
-            Dict mapping pattern -> list of frame records
         """
         pattern_groups = defaultdict(list)
         
@@ -179,13 +157,6 @@ class DisagreementAnalyzer:
                               ground_truth: Dict[Tuple, str]) -> Dict[str, Dict]:
         """
         Analyze per-model errors.
-        
-        Args:
-            frame_predictions: Dict[(seq_id, frame_id) -> list of FramePrediction]
-            ground_truth: Dict[(seq_id, frame_id) -> label]
-        
-        Returns:
-            Dict[model_name -> error_profile]
         """
         model_profiles = {}
         
@@ -249,13 +220,6 @@ class DisagreementAnalyzer:
                                    ground_truth: Dict[Tuple, str]) -> Dict:
         """
         Analyze correlations in model errors (are they making same mistakes?).
-        
-        Args:
-            frame_predictions: Dict of predictions
-            ground_truth: Ground truth labels
-        
-        Returns:
-            Dict with correlation analysis
         """
         model_profiles = self.analyze_model_errors(frame_predictions, ground_truth)
         
@@ -298,10 +262,6 @@ class DisagreementAnalyzer:
                                  output_path: str) -> None:
         """
         Export disagreement log to JSON file.
-        
-        Args:
-            disagreement_records: List of disagreement records
-            output_path: Path to save JSON file
         """
         # Convert numpy/defaultdict types for JSON serialization
         records = []

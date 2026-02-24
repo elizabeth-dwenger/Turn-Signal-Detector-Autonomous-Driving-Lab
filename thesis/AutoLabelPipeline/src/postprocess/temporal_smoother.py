@@ -18,7 +18,6 @@ class TemporalSmoother:
     Applies temporal smoothing to sequence predictions.
     Removes single-frame outliers and enforces consistency.
     """
-    
     def __init__(self, postprocessing_config):
         self.config = postprocessing_config
         self.method = postprocessing_config.smoothing_method

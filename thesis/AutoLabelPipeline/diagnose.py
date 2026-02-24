@@ -31,7 +31,7 @@ def diagnose_result_directory(result_dir):
     json_files = list(seq_dir.glob("*.json"))
     
     if not json_files:
-        print(f"\n❌ No JSON files found in {seq_dir}")
+        print(f"\n No JSON files found in {seq_dir}")
         return
     
     print(f"\n✓ Found {len(json_files)} sequence files")
@@ -82,7 +82,7 @@ def diagnose_result_directory(result_dir):
     if total_issues == 0:
         print("\n✓ No issues found! All predictions look good.")
     else:
-        print(f"\n⚠️  Found {total_issues} sequences with issues:\n")
+        print(f"\n  Found {total_issues} sequences with issues:\n")
         
         if issues['empty_predictions']:
             print(f"  Empty predictions: {len(issues['empty_predictions'])}")
@@ -152,7 +152,7 @@ def diagnose_single_sequence(json_file):
     print(f"Number of predictions: {len(predictions)}")
     
     if not predictions:
-        print("\n❌ No predictions found!")
+        print("\n No predictions found!")
         return
     
     # Analyze each prediction
@@ -175,7 +175,7 @@ def diagnose_single_sequence(json_file):
             print(f"  Start: frame {start_f}, time {start_t}s")
             print(f"  End: frame {end_f}, time {end_t}s")
         else:
-            print(f"\n⚠️  No temporal localization info")
+            print(f"\n  No temporal localization info")
         
         # Reasoning
         reasoning = pred.get('reasoning', '')
@@ -184,7 +184,7 @@ def diagnose_single_sequence(json_file):
             if len(reasoning) > 200:
                 print(f"  ... (truncated, full length: {len(reasoning)} chars)")
         else:
-            print(f"\n⚠️  No reasoning provided")
+            print(f"\n  No reasoning provided")
         
         # Raw output analysis
         raw = pred.get('raw_output', '')
@@ -194,10 +194,10 @@ def diagnose_single_sequence(json_file):
             
             # Check if output is complete
             if '<think>' in raw and '</think>' not in raw:
-                print(f"  ⚠️  Incomplete thinking tags (missing </think>)")
+                print(f"    Incomplete thinking tags (missing </think>)")
             
             if '<answer>' in raw and '</answer>' not in raw:
-                print(f"  ⚠️  Incomplete answer tags (missing </answer>)")
+                print(f"    Incomplete answer tags (missing </answer>)")
             
             # Check for JSON
             if '{' in raw:
@@ -210,11 +210,11 @@ def diagnose_single_sequence(json_file):
                         print(f"  ✓ Valid JSON found")
                         print(f"    Keys: {list(parsed_json.keys())}")
                     except json.JSONDecodeError as e:
-                        print(f"  ❌ Invalid JSON: {e}")
+                        print(f"   Invalid JSON: {e}")
                 else:
-                    print(f"  ❌ No closing brace found for JSON")
+                    print(f"   No closing brace found for JSON")
             else:
-                print(f"  ⚠️  No JSON found in output")
+                print(f"    No JSON found in output")
             
             # Show raw output sample
             print(f"\nRaw output (first 300 chars):")
@@ -229,16 +229,16 @@ def diagnose_single_sequence(json_file):
             print(raw[-300:])
             print("-" * 60)
         else:
-            print(f"\n⚠️  No raw output saved")
+            print(f"\n  No raw output saved")
         
         # Check for processing flags
         if pred.get('original_label'):
-            print(f"\n⚠️  Label was modified by post-processing:")
+            print(f"\n  Label was modified by post-processing:")
             print(f"  Original: {pred.get('original_label')}")
             print(f"  Final: {pred.get('label')}")
         
         if pred.get('constraint_enforced'):
-            print(f"\n⚠️  Constraints were enforced (label may have been changed)")
+            print(f"\n  Constraints were enforced (label may have been changed)")
 
 
 def check_prompt_file(prompt_path):
@@ -248,7 +248,7 @@ def check_prompt_file(prompt_path):
     print("="*80)
     
     if not Path(prompt_path).exists():
-        print(f"\n❌ Prompt file not found: {prompt_path}")
+        print(f"\n Prompt file not found: {prompt_path}")
         return
     
     with open(prompt_path) as f:
@@ -270,7 +270,7 @@ def check_prompt_file(prompt_path):
     }
     
     for check, passed in checks.items():
-        status = "✓" if passed else "❌"
+        status = "✓" if passed else "X"
         print(f"  {status} {check}")
     
     print(f"\nPrompt preview (first 500 chars):")
@@ -303,11 +303,11 @@ def check_model_config(config_path):
         # Check if max_new_tokens might be too small
         max_tokens = model_config.get('max_new_tokens', 0)
         if max_tokens < 200:
-            print(f"\n⚠️  max_new_tokens={max_tokens} might be too small for detailed responses")
+            print(f"\n  max_new_tokens={max_tokens} might be too small for detailed responses")
             print(f"    Consider increasing to 300-500 for temporal localization")
         
     except Exception as e:
-        print(f"\n❌ Error reading config: {e}")
+        print(f"\n Error reading config: {e}")
 
 
 def main():

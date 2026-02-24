@@ -30,7 +30,6 @@ except ImportError:
 
 
 class HeuristicConfig:
-    """Lightweight config loader."""
     def __init__(self, config_path: str):
         with open(config_path, 'r') as f:
             raw = yaml.safe_load(f)

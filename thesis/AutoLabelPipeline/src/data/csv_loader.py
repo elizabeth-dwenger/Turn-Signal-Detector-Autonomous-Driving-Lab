@@ -19,8 +19,7 @@ class CSVLoader:
     Loads tracking data from CSV file.
     
     CSV Format:
-    sequence,track_id,frame_id,class_id,score,x1,y1,x2,y2,crop_path,img_path,
-    width,height,sequence_id,true_label,sampled_frame_id,signal_start_frame
+    sequence,track_id,frame_id,class_id,score,x1,y1,x2,y2,crop_path,img_path, width,height,sequence_id,true_label,sampled_frame_id,signal_start_frame
     
     fyi not everything in the csv is needed (and "signal_start_frame" I don't think is correct)
     """

@@ -53,15 +53,6 @@ class EnsembleExperimentRunner:
                          diversity_mode: str = "auto") -> List[Tuple[Path, str, float]]:
         """
         Select top N models by F1 score.
-        
-        Args:
-            results_root: Root directory containing model results
-            n_top: Number of top models to select
-            model_f1_scores: Optional dict mapping model_name -> f1_score (e.g., from user input)
-            diversity_mode: "auto" (top N by F1) or "manual" (user-provided)
-        
-        Returns:
-            List of (results_dir, model_name, f1_score)
         """
         if diversity_mode == "manual" and model_f1_scores:
             # Manual selection from provided scores
@@ -118,13 +109,6 @@ class EnsembleExperimentRunner:
         - results/model_name/test_runs/timestamp/  (standard pipeline structure)
         - results/model_name/experiment_name/      (alternative structure)
         - results/model_name/                      (flat structure)
-        
-        Args:
-            results_root: Root directory containing model results
-            model_name: Model name like "qwen3_vl_single/exp_5"
-        
-        Returns:
-            Path to the directory containing CSV/JSON prediction files, or None if not found
         """
         # Parse model_name: "qwen3_vl_single/exp_5" -> base="qwen3_vl_single", exp="exp_5"
         parts = model_name.split("/")
@@ -182,15 +166,6 @@ class EnsembleExperimentRunner:
                               ground_truth: Optional[Dict] = None) -> Dict:
         """
         Run a single ensemble experiment (load, aggregate, evaluate).
-        
-        Args:
-            dataset: FramePredictionDataset
-            voter: Voter instance
-            exp_name: Name for this experiment
-            ground_truth: Optional ground truth for evaluation
-        
-        Returns:
-            Dict with results
         """
         logger.info(f"Running experiment: {exp_name}")
         
@@ -279,14 +254,6 @@ class EnsembleExperimentRunner:
                                     ground_truth: Optional[Dict] = None) -> pd.DataFrame:
         """
         Generate comparison table: individual models vs. ensemble.
-        
-        Args:
-            individual_datasets: Dict[model_name -> FramePredictionDataset]
-            ensemble_results: Results dict from run_single_experiment
-            ground_truth: Ground truth labels
-        
-        Returns:
-            Comparison DataFrame
         """
         gt = ground_truth
         if not gt:
@@ -336,12 +303,6 @@ class EnsembleExperimentRunner:
     def generate_summary(self, all_experiments: List[Dict]) -> str:
         """
         Generate text summary of all experiments.
-        
-        Args:
-            all_experiments: List of experiment result dicts
-        
-        Returns:
-            Summary text
         """
         summary = []
         summary.append("=" * 80)

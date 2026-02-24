@@ -28,8 +28,7 @@ class ExperimentConfig:
 
 @dataclass
 class DataConfig:
-    """Data input configuration"""
-    # CSV file with tracking data (your format)
+    # CSV file with tracking data
     input_csv: str
     
     # Directory containing crop images

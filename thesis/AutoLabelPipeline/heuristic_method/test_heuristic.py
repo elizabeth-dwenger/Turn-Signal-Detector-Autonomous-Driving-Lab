@@ -2,8 +2,7 @@
 """
 Heuristic-based turn signal detection pipeline runner.
 
-Produces outputs compatible with compare_prompts.py for direct comparison
-with VLM-based models.
+Produces outputs compatible with compare_prompts.py for direct comparison with VLM-based models.
 """
 import sys
 import argparse

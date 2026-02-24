@@ -23,24 +23,12 @@ class EnsembleEvaluator:
     VALID_LABELS = ["left", "right", "hazard", "none"]
     
     def __init__(self, label_order: List[str] = None):
-        """
-        Args:
-            label_order: Order of labels for metrics. Defaults to standard order.
-        """
         self.label_order = label_order or self.VALID_LABELS
     
     def compute_frame_metrics(self, y_true: List[str], y_pred: List[str],
                               per_label: bool = True) -> Dict:
         """
         Compute frame-level metrics.
-        
-        Args:
-            y_true: Ground truth labels
-            y_pred: Predicted labels
-            per_label: If True, return per-label metrics
-        
-        Returns:
-            Dict with frame_macro_f1, per_label scores, etc.
         """
         
         # Convert to numpy arrays
@@ -92,14 +80,6 @@ class EnsembleEvaluator:
                        ground_truth: Dict[Tuple, str]) -> pd.DataFrame:
         """
         Compare individual models against ensemble.
-        
-        Args:
-            individual_results: Dict[model_name -> DataFrame with predictions]
-            ensemble_result: DataFrame with ensemble predictions
-            ground_truth: Dict[(sequence_id, frame_id) -> label]
-        
-        Returns:
-            Comparison DataFrame
         """
         comparison_rows = []
         

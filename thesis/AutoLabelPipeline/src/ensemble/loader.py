@@ -69,12 +69,6 @@ class EnsembleLoader:
                  handle_missing_frames: str = "exclude",
                  transform_sequence_ids: bool = True):
         """
-        Args:
-            label_harmonization: Normalize labels (e.g., "both" -> "hazard")
-            calibrate_confidence: Apply confidence calibration (not implemented yet)
-            handle_missing_frames: Strategy for frames missing from a model
-                - "exclude": Remove frame from ensemble
-                - "abstain": Treat as abstention (not voting)
             transform_sequence_ids: Transform prediction format sequence_ids to ground truth format
                 - Converts: '2024-07-09-16-49-42_mapping_tartu_streets_camera_wide_right_170__track_170'
                 - To: '2024-07-09-16-49-42_mapping_tartu_streets/camera_wide_right_170'
@@ -89,14 +83,6 @@ class EnsembleLoader:
                                model_config: Dict = None) -> FramePredictionDataset:
         """
         Load predictions from a single model run directory.
-        
-        Args:
-            results_dir: Directory containing prediction files
-            model_name: Name/identifier for this model
-            model_config: Optional config dict with mode, prompt_version, etc.
-        
-        Returns:
-            FramePredictionDataset with predictions from this model
         """
         results_dir = Path(results_dir)
         if not results_dir.exists():
@@ -152,12 +138,6 @@ class EnsembleLoader:
           '2024-07-09-16-49-42_mapping_tartu_streets_camera_wide_right_170__track_170'
         To:
           '2024-07-09-16-49-42_mapping_tartu_streets/camera_wide_right_170'
-        
-        Args:
-            raw_sequence_id: Sequence ID from prediction filename
-        
-        Returns:
-            Transformed sequence ID matching ground truth format
         """
         if not self.transform_sequence_ids:
             return raw_sequence_id

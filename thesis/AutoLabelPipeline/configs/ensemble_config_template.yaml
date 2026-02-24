@@ -1,5 +1,4 @@
 # Ensemble Configuration Template
-# Use this to configure ensemble experiments
 
 ensemble_experiment:
   name: "ensemble_experiment_v1"
@@ -13,7 +12,7 @@ model_selection:
   n_top_models: 3
   
   # Built-in F1 scores from Phase 3 testing
-  # These are automatically used for model ranking
+  # These are FROM PREVIOUS TESTS! 
   phase_3_f1_scores:
     qwen3_vl_single/exp_5: 0.574
     cosmos_reason2_video/exp_2: 0.465

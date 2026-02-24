@@ -26,12 +26,6 @@ class MajorityVoter:
     """Simple majority vote (>50% agreement)"""
     
     def __init__(self, tie_break_method: str = "confidence"):
-        """
-        Args:
-            tie_break_method: How to break ties
-                - "confidence": Highest average confidence
-                - "random": Random selection
-        """
         self.tie_break_method = tie_break_method
     
     def vote(self, predictions: List, **kwargs) -> VotingResult:
@@ -80,7 +74,6 @@ class MajorityVoter:
                 voting_distribution=vote_counts,
             )
         
-        # Tie or no consensus - pick label with highest average confidence
         best_label = max(
             confidence_per_label.keys(),
             key=lambda l: np.mean(confidence_per_label[l])
@@ -100,33 +93,13 @@ class MajorityVoter:
 
 class EnsembleAggregator:
     """Orchestrates ensemble prediction aggregation using majority voting"""
-    
     def __init__(self, voter: MajorityVoter = None):
-        """
-        Args:
-            voter: (Optional) MajorityVoter instance. If None, creates one automatically.
-        """
         self.voter = voter if voter is not None else MajorityVoter()
     
     def aggregate(self, frame_predictions_dict: Dict,
                   verbose: bool = False) -> pd.DataFrame:
         """
         Apply majority voting to all frames.
-        
-        Args:
-            frame_predictions_dict: Dict keyed by (sequence_id, frame_id)
-                Values are lists of FramePrediction objects
-            verbose: If True, log details for first N frames
-        
-        Returns:
-            DataFrame with columns:
-            - sequence_id
-            - frame_id
-            - ensemble_label
-            - ensemble_confidence
-            - agreement_count
-            - total_models
-            - voting_distribution (dict of label->count)
         """
         results = []
         

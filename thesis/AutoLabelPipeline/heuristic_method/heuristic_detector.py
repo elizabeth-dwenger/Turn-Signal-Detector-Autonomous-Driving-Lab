@@ -9,8 +9,7 @@ class HeuristicDetector:
     """
     Heuristic detector for turn signal analysis.
     
-    Uses yellow channel isolation and FFT-based periodic signal detection
-    to identify left, right, hazard, or no turn signal.
+    Uses yellow channel isolation and FFT-based periodic signal detection to identify left, right, hazard, or no turn signal.
     """
     
     # Valid labels matching the VLM pipeline
@@ -40,12 +39,7 @@ class HeuristicDetector:
         min_cv: float = 0.0  # Disabled - CV doesn't help (none has higher CV than signals)
     ):
         """
-        Initialize the heuristic detector.
-        
-        HSV ranges for turn signal detection:
-        - Hue: 0-179 in OpenCV (15-35 = yellow/orange, 0-15 = red/orange)
-        - Saturation: 0-255 (higher = more colorful)
-        - Value: 0-255 (higher = brighter)
+        Initialize the heuristic detector
         """
         self.fps = fps
         self.activity_threshold = activity_threshold
@@ -330,13 +324,6 @@ class HeuristicDetector:
         Predict turn signal from video tensor or chunks.
         
         Compatible interface with VLM models' predict_video method.
-        
-        Args:
-            video: Video tensor (T, H, W, C) or (T, C, H, W)
-            chunks: List of video chunks (not typically used for heuristic)
-            
-        Returns:
-            Prediction dict
         """
         if chunks is not None:
             # Handle chunked video - process all chunks and aggregate

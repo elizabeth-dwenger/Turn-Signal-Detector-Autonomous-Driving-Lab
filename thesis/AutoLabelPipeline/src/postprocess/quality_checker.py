@@ -16,7 +16,6 @@ class QualityChecker:
     Identifies predictions that need manual review.
     Flags anomalies and inconsistencies.
     """
-    
     def __init__(self, quality_control_config):
         # Handle None case with defaults
         if quality_control_config is None:
@@ -145,7 +144,6 @@ class ConstraintEnforcer:
     """
     Enforces physical constraints on turn signal predictions.
     """
-    
     def __init__(self, postprocessing_config):
         self.config = postprocessing_config
         self.min_duration = postprocessing_config.min_signal_duration_frames

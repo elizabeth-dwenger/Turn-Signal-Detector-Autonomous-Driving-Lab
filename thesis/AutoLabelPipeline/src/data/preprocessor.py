@@ -19,7 +19,6 @@ class ImagePreprocessor:
     Preprocesses images for model input.
     Handles resizing, aspect ratio, normalization.
     """
-    
     def __init__(self, preprocessing_config):
         self.config = preprocessing_config
         self.target_size = tuple(preprocessing_config.resize_resolution)  # (width, height)
@@ -124,7 +123,6 @@ class SequencePreprocessor:
     Preprocesses entire sequences for video-mode inference.
     Combines ImagePreprocessor with temporal operations.
     """
-    
     def __init__(self, config: PreprocessingConfig):
         self.config = config
         self.stride = config.sequence_stride

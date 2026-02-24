@@ -18,7 +18,6 @@ class Postprocessor:
     Orchestrates all post-processing steps.
     Handles both video and single-image modes.
     """
-    
     def __init__(self, postprocessing_config, model_config, quality_control_config=None):
         self.config = postprocessing_config
         self.inference_mode = model_config.inference_mode
@@ -181,7 +180,4 @@ class Postprocessor:
 
 
 def create_postprocessor(config):
-    """
-    Factory function to create postprocessor.
-    """
     return Postprocessor(config.postprocessing, config.model, config.quality_control)
