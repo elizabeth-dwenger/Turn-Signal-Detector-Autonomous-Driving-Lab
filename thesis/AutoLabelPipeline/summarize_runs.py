@@ -84,7 +84,8 @@ def summarize_runs(root_dir: Path) -> None:
             "f1_right": per_class.get("right", {}).get("f1", None) if per_class else None,
             "f1_hazard": per_class.get("hazard", {}).get("f1", None) if per_class else None,
             "f1_none": per_class.get("none", {}).get("f1", None) if per_class else None,
-            "avg_latency_ms": model_metrics.get("avg_latency_ms", None)
+            "avg_latency_per_frame_ms": model_metrics.get("avg_latency_per_frame_ms", None),
+            "avg_latency_ms": model_metrics.get("avg_latency_ms", None),
         })
 
     df = pd.DataFrame(rows)
@@ -125,6 +126,7 @@ def summarize_runs(root_dir: Path) -> None:
             "f1_right",
             "f1_hazard",
             "f1_none",
+            "avg_latency_per_frame_ms",
             "avg_latency_ms",
         ]
     ]
@@ -139,7 +141,8 @@ def summarize_runs(root_dir: Path) -> None:
         "f1_right": "F1 Right",
         "f1_hazard": "F1 Hazard",
         "f1_none": "F1 None",
-        "avg_latency_ms": "Avg Latency",
+        "avg_latency_per_frame_ms": "Avg Latency / Frame (ms)",
+        "avg_latency_ms": "Avg Latency / Inference (ms)",
     })
 
     print(display_table.to_string())

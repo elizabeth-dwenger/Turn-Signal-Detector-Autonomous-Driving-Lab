@@ -42,6 +42,7 @@ class TurnSignalDetector(ABC):
             'successful_parses': 0,
             'failed_parses': 0,
             'total_latency_ms': 0.0,
+            'total_frames_processed': 0,
         }
     
     @abstractmethod
@@ -180,6 +181,11 @@ class TurnSignalDetector(ABC):
             metrics['avg_latency_ms'] = 0.0
             metrics['parse_success_rate'] = 0.0
         
+        if metrics['total_frames_processed'] > 0:
+            metrics['avg_latency_per_frame_ms'] = metrics['total_latency_ms'] / metrics['total_frames_processed']
+        else:
+            metrics['avg_latency_per_frame_ms'] = 0.0
+        
         return metrics
     
     def reset_metrics(self):
@@ -189,6 +195,7 @@ class TurnSignalDetector(ABC):
             'successful_parses': 0,
             'failed_parses': 0,
             'total_latency_ms': 0.0,
+            'total_frames_processed': 0,
         }
     
     def __repr__(self) -> str:

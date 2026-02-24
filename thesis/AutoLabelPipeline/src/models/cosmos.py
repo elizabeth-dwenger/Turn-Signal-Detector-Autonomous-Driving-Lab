@@ -171,6 +171,7 @@ class CosmosDetector(TurnSignalDetector):
         latency_ms = (time.time() - start_time) * 1000
         self.metrics['total_inferences'] += 1
         self.metrics['total_latency_ms'] += latency_ms
+        self.metrics['total_frames_processed'] += total_frames
         
         return {
             'segments': merged_segments,
@@ -281,6 +282,7 @@ class CosmosDetector(TurnSignalDetector):
         if update_metrics:
             self.metrics['total_inferences'] += 1
             self.metrics['total_latency_ms'] += latency_ms
+            self.metrics['total_frames_processed'] += num_frames
 
         # 6. Build return value — always include segments array
         result = {

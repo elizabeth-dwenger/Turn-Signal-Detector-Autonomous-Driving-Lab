@@ -241,6 +241,7 @@ class QwenVLDetector(TurnSignalDetector):
         latency_ms = (time.time() - start_time) * 1000
         self.metrics['total_inferences'] += 1
         self.metrics['total_latency_ms'] += latency_ms
+        self.metrics['total_frames_processed'] += video.shape[0]
         
         result = {
             'label': parsed['label'],
@@ -306,6 +307,7 @@ class QwenVLDetector(TurnSignalDetector):
         latency_ms = (time.time() - start_time) * 1000
         self.metrics['total_inferences'] += 1
         self.metrics['total_latency_ms'] += latency_ms
+        self.metrics['total_frames_processed'] += total_frames
         
         return {
             'segments': merged_segments,
@@ -405,6 +407,7 @@ class QwenVLDetector(TurnSignalDetector):
         latency_ms = (time.time() - start_time) * 1000
         self.metrics['total_inferences'] += 1
         self.metrics['total_latency_ms'] += latency_ms
+        self.metrics['total_frames_processed'] += 1
         
         return {
             'label': parsed['label'],

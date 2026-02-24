@@ -471,7 +471,9 @@ def test_pipeline(config_path: str, num_sequences: int = 10,
     model_metrics = model.get_metrics()
     print(f"\n  Model Metrics:")
     print(f"    Total inferences: {model_metrics['total_inferences']}")
-    print(f"    Avg latency: {model_metrics['avg_latency_ms']:.1f} ms")
+    print(f"    Total frames processed: {model_metrics.get('total_frames_processed', 0)}")
+    print(f"    Avg latency / inference: {model_metrics['avg_latency_ms']:.1f} ms")
+    print(f"    Avg latency / frame: {model_metrics.get('avg_latency_per_frame_ms', 0.0):.2f} ms")
     print(f"    Parse success: {model_metrics['parse_success_rate']:.1%}")
 
     # Persist model metrics for post-processing
