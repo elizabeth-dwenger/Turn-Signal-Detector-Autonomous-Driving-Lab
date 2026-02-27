@@ -1,0 +1,21 @@
+# Agreement-Based Ensemble Configuration
+# Usage: python run_agreement_ensemble.py --config configs/agreement_ensemble_config.yaml
+
+# ── VLM model (cosmos_reason2_video) ──────────────────────────────
+vlm_results: "results/cosmos_reason2_video"          # model root or direct run dir
+vlm_model_name: "cosmos_reason2_video"
+
+# ── Heuristic model ──────────────────────────────────────────────
+# Point to the results.json file OR the directory containing it
+heuristic_results: "prompt_comparison/heuristic_20260215_120000/results.json"
+heuristic_model_name: "heuristic_model"
+
+# ── Ground truth (optional, for evaluation) ──────────────────────
+ground_truth: "data/tracking_data.csv"    # set to null to skip evaluation
+
+# ── Output ───────────────────────────────────────────────────────
+output_dir: "agreement_experiments"
+
+# ── Options ──────────────────────────────────────────────────────
+no_transform_ids: false   # set true to disable sequence_id transformation
+verbose: false

@@ -239,12 +239,25 @@ def run_pipeline(config_path: str, verbose: bool = False, comparison_group: str 
     set_random_seeds(config.experiment.random_seed)
     target_fps = config.model.model_kwargs.get('target_video_fps')
     config.model.model_kwargs['video_fps'] = target_fps or config.data.video_fps
+
+    # Full pipeline always runs the full dataset.
+    config.data.max_sequences = None
+    config.data.sequence_filter = None
+
+    # Create timestamped full-run output directory.
     run_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    model_name = config.model.type.value
+    full_output_dir = Path(config.experiment.output_dir) / "full_runs" / f"{model_name}_{run_timestamp}"
+    full_output_dir.mkdir(parents=True, exist_ok=True)
+    config.experiment.output_dir = str(full_output_dir)
+    config.output.visualization_output_dir = str(full_output_dir / "visualizations")
+    config.logging.log_file = str(full_output_dir / "pipeline.log")
     print(f"\nConfiguration: {config_path}")
     print(f"  Experiment: {config.experiment.name}")
     print(f"  Model: {config.model.type.value}")
     print(f"  Mode: {config.model.inference_mode.value}")
     print(f"  Output: {config.experiment.output_dir}")
+    print(f"  Timestamp: {run_timestamp}")
     
     # Setup logging
     setup_logging(config.logging.log_file, verbose)
@@ -577,7 +590,6 @@ def run_pipeline(config_path: str, verbose: bool = False, comparison_group: str 
         }
         
         # Save evaluation summary
-        import json
         eval_path = Path(config.experiment.output_dir) / "evaluation_metrics.json"
         with open(eval_path, "w") as f:
             json.dump(eval_summary, f, indent=2)
