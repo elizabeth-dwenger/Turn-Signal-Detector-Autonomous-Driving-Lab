@@ -226,10 +226,162 @@ def _segments_to_frames(segment_prediction, frame_ids, fps: float):
     return unique_predictions
 
 
-def run_pipeline(config_path: str, verbose: bool = False, comparison_group: str = None):
+# ---------------------------------------------------------------------------
+# Unlabeled-data analysis
+# ---------------------------------------------------------------------------
+
+def _run_unlabeled_analysis(config, processed_results, dataset, run_timestamp,
+                            model_metrics, comparison_group):
     """
-    Run complete pipeline with memory-efficient processing.
+    Produce prediction-only analyses for an unlabeled dataset.
+
+    Outputs saved to the run's output directory:
+      - unlabeled_analysis.json   – full statistics
+      - unlabeled_per_sequence.csv – per-track summary
     """
+    from collections import Counter
+    import csv
+
+    print("\n" + "-"*80)
+    print("STAGE 8: Unlabeled-Data Analysis (no ground truth)")
+    print("-"*80)
+
+    output_dir = Path(config.experiment.output_dir)
+    target_fps = config.model.model_kwargs.get('target_video_fps')
+    eval_fps = target_fps or config.data.video_fps
+
+    # ---- 1. Global predicted-label distribution ----
+    all_labels = []
+    per_seq_rows = []
+
+    for sequence_key, result in processed_results.items():
+        preds = result.get('predictions', [])
+        seq_labels = [_normalize_label(p.get('label', 'none')) for p in preds]
+        all_labels.extend(seq_labels)
+
+        label_counts = Counter(seq_labels)
+        total = len(seq_labels)
+
+        # Predicted signal events for this track
+        pred_events = _extract_events(seq_labels)
+        signal_events = [e for e in pred_events if e['label'] != 'none']
+
+        # Prediction consistency: fraction of the dominant label
+        dominant_frac = max(label_counts.values()) / total if total else 0.0
+
+        per_seq_rows.append({
+            "sequence_key": sequence_key,
+            "num_frames": total,
+            "dominant_label": label_counts.most_common(1)[0][0] if total else "none",
+            "dominant_frac": round(dominant_frac, 4),
+            "num_signal_events": len(signal_events),
+            "signal_frames": total - label_counts.get('none', 0),
+            "signal_frac": round(1.0 - label_counts.get('none', 0) / total, 4) if total else 0.0,
+            **{f"count_{lbl}": label_counts.get(lbl, 0)
+               for lbl in ["left", "right", "hazard", "none"]},
+        })
+
+    global_counts = Counter(all_labels)
+    total_frames = len(all_labels)
+
+    print(f"\n  Predicted label distribution ({total_frames} frames):")
+    for lbl in ["left", "right", "hazard", "none"]:
+        cnt = global_counts.get(lbl, 0)
+        pct = cnt / total_frames * 100 if total_frames else 0.0
+        print(f"    {lbl:.<20} {cnt:>7} ({pct:>5.1f}%)")
+
+    # ---- 2. Signal-event summary ----
+    total_signal_events = sum(r["num_signal_events"] for r in per_seq_rows)
+    seqs_with_signal = sum(1 for r in per_seq_rows if r["num_signal_events"] > 0)
+    print(f"\n  Signal events detected: {total_signal_events} across "
+          f"{seqs_with_signal}/{len(per_seq_rows)} tracks")
+
+    # ---- 3. Track-level consistency ----
+    consistency_values = [r["dominant_frac"] for r in per_seq_rows if r["num_frames"] > 0]
+    if consistency_values:
+        import statistics
+        avg_consistency = statistics.mean(consistency_values)
+        med_consistency = statistics.median(consistency_values)
+        print(f"\n  Track-level prediction consistency:")
+        print(f"    Mean dominant-label fraction:   {avg_consistency:.3f}")
+        print(f"    Median dominant-label fraction:  {med_consistency:.3f}")
+
+    # ---- 4. Confidence / quality flags ----
+    total_flagged = sum(
+        r.get('quality_report', {}).get('total_flagged', 0)
+        for r in processed_results.values()
+    )
+    print(f"  Quality-flagged frames: {total_flagged}")
+
+    # ---- 5. Persist results ----
+    analysis = {
+        "mode": "unlabeled",
+        "timestamp": run_timestamp,
+        "model": config.model.type.value,
+        "inference_mode": config.model.inference_mode.value,
+        "num_sequences": len(processed_results),
+        "num_frames": total_frames,
+        "fps": eval_fps,
+        "global_label_distribution": {
+            lbl: global_counts.get(lbl, 0) for lbl in ["left", "right", "hazard", "none"]
+        },
+        "total_signal_events": total_signal_events,
+        "sequences_with_signal": seqs_with_signal,
+        "avg_track_consistency": round(avg_consistency, 4) if consistency_values else None,
+        "median_track_consistency": round(med_consistency, 4) if consistency_values else None,
+        "quality_flagged_frames": total_flagged,
+        "model_metrics": model_metrics,
+    }
+
+    analysis_path = output_dir / "unlabeled_analysis.json"
+    with open(analysis_path, "w") as f:
+        json.dump(analysis, f, indent=2, default=str)
+    print(f"\n  Saved unlabeled analysis: {analysis_path}")
+
+    # Per-sequence CSV
+    if per_seq_rows:
+        per_seq_path = output_dir / "unlabeled_per_sequence.csv"
+        with open(per_seq_path, "w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=per_seq_rows[0].keys())
+            writer.writeheader()
+            writer.writerows(per_seq_rows)
+        print(f"  Saved per-sequence stats: {per_seq_path}")
+
+    # Prompt-comparison summary (still useful for comparing prompts
+    # on unlabeled data via predicted-label distributions)
+    try:
+        prompt_path = config.model.prompt_template_path
+        prompt_name = Path(prompt_path).stem if prompt_path else "default_prompt"
+        model_name = config.model.type.value
+        comparison_dir = Path("prompt_comparison")
+        if comparison_group:
+            comparison_dir = comparison_dir / comparison_group
+        comparison_dir.mkdir(parents=True, exist_ok=True)
+        summary_file = comparison_dir / f"{model_name}_{prompt_name}_{run_timestamp}_summary.json"
+
+        prompt_summary = {
+            "prompt_file": prompt_path,
+            "timestamp": run_timestamp,
+            "model": model_name,
+            "inference_mode": config.model.inference_mode.value,
+            "num_sequences": len(processed_results),
+            "accuracy": None,
+            "metrics": model_metrics,
+            "run_directory": str(config.experiment.output_dir),
+            "frame_metrics": None,
+            "event_metrics": None,
+            "unlabeled_analysis": analysis,
+        }
+
+        with open(summary_file, "w") as f:
+            json.dump(prompt_summary, f, indent=2, default=str)
+        print(f"  Saved prompt comparison summary: {summary_file}")
+    except Exception as e:
+        print(f"   Warning: Failed to save prompt comparison summary: {e}")
+
+
+def run_pipeline(config_path: str, verbose: bool = False, comparison_group: str = None,
+                 unlabeled: bool = False):
     # Load configuration
     print("\n" + "="*80)
     print("TURN SIGNAL DETECTION PIPELINE")
@@ -256,6 +408,7 @@ def run_pipeline(config_path: str, verbose: bool = False, comparison_group: str 
     print(f"  Experiment: {config.experiment.name}")
     print(f"  Model: {config.model.type.value}")
     print(f"  Mode: {config.model.inference_mode.value}")
+    print(f"  Unlabeled: {unlabeled}")
     print(f"  Output: {config.experiment.output_dir}")
     print(f"  Timestamp: {run_timestamp}")
     
@@ -514,133 +667,140 @@ def run_pipeline(config_path: str, verbose: bool = False, comparison_group: str 
     report_path = output_generator.generate_report(dataset_stats, model_metrics)
     print(f"  Generated report: {report_path}")
     
-    # Evaluation metrics vs ground truth (if available)
-    print("\n" + "-"*80)
-    print("STAGE 8: Evaluation Metrics (Ground Truth)")
-    print("-"*80)
-    
-    target_fps = config.model.model_kwargs.get('target_video_fps')
-    eval_fps = target_fps or config.data.video_fps
-    all_true = []
-    all_pred = []
-    event_tp = event_fp = event_fn = 0
-    per_sequence_rows = []
-    
-    seq_lookup = {f"{s.sequence_id}__track_{s.track_id}": s for s in dataset.sequences}
-    
-    for sequence_key, result in processed_results.items():
-        seq = seq_lookup.get(sequence_key)
-        if not seq or not seq.has_ground_truth:
-            continue
-        
-        pred_by_id = {p.get('frame_id'): _normalize_label(p.get('label', 'none'))
-                      for p in result.get('predictions', []) if p.get('frame_id') is not None}
-        
-        y_true = []
-        y_pred = []
-        for f in seq.frames:
-            if not f.has_ground_truth:
-                continue
-            if f.frame_id not in pred_by_id:
-                continue
-            y_true.append(_normalize_label(f.true_label))
-            y_pred.append(pred_by_id[f.frame_id])
-        
-        if not y_true:
-            continue
-        
-        all_true.extend(y_true)
-        all_pred.extend(y_pred)
-        ev = _compute_event_metrics(y_true, y_pred, eval_fps)
-        event_tp += ev["tp"]
-        event_fp += ev["fp"]
-        event_fn += ev["fn"]
-        
-        seq_frame_metrics = _compute_frame_metrics(y_true, y_pred)
-        per_sequence_rows.append({
-            "sequence_key": sequence_key,
-            "support": seq_frame_metrics["support"],
-            "frame_accuracy": seq_frame_metrics["accuracy"],
-            "frame_macro_f1": seq_frame_metrics["macro_f1"],
-            "event_f1": ev["f1"],
-            "event_precision": ev["precision"],
-            "event_recall": ev["recall"]
-        })
-    
-    if all_true:
-        frame_metrics = _compute_frame_metrics(all_true, all_pred)
-        precision = event_tp / (event_tp + event_fp) if (event_tp + event_fp) > 0 else 0.0
-        recall = event_tp / (event_tp + event_fn) if (event_tp + event_fn) > 0 else 0.0
-        event_f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) > 0 else 0.0
-        event_metrics = {
-            "precision": precision,
-            "recall": recall,
-            "f1": event_f1,
-            "tp": event_tp,
-            "fp": event_fp,
-            "fn": event_fn
-        }
-        
-        eval_summary = {
-            "frame_metrics": frame_metrics,
-            "event_metrics": event_metrics,
-            "num_sequences": len(per_sequence_rows),
-            "num_frames": frame_metrics.get("support", 0),
-            "fps": eval_fps
-        }
-        
-        # Save evaluation summary
-        eval_path = Path(config.experiment.output_dir) / "evaluation_metrics.json"
-        with open(eval_path, "w") as f:
-            json.dump(eval_summary, f, indent=2)
-        print(f"  Saved evaluation metrics: {eval_path}")
-        
-        # Save per-sequence CSV
-        if per_sequence_rows:
-            import csv
-            per_seq_path = Path(config.experiment.output_dir) / "evaluation_per_sequence.csv"
-            with open(per_seq_path, "w", newline="") as f:
-                writer = csv.DictWriter(f, fieldnames=per_sequence_rows[0].keys())
-                writer.writeheader()
-                writer.writerows(per_sequence_rows)
-            print(f"  Saved per-sequence metrics: {per_seq_path}")
-        
-        print(f"  Frame Macro F1: {frame_metrics['macro_f1']:.3f}")
-        print(f"  Frame Accuracy: {frame_metrics['accuracy']:.3f}")
-        print(f"  Event F1: {event_metrics['f1']:.3f}")
+    # Evaluation metrics vs ground truth (if available and not unlabeled)
+    if unlabeled:
+        # --- UNLABELED-SPECIFIC ANALYSIS (replaces Stage 8) ---
+        _run_unlabeled_analysis(config, processed_results, dataset, run_timestamp,
+                               model_metrics, comparison_group)
     else:
-        print("  No ground truth available for evaluation.")
+        # --- LABELED EVALUATION (original Stage 8) ---
+        print("\n" + "-"*80)
+        print("STAGE 8: Evaluation Metrics (Ground Truth)")
+        print("-"*80)
+    
+        target_fps = config.model.model_kwargs.get('target_video_fps')
+        eval_fps = target_fps or config.data.video_fps
+        all_true = []
+        all_pred = []
+        event_tp = event_fp = event_fn = 0
+        per_sequence_rows = []
+        
+        seq_lookup = {f"{s.sequence_id}__track_{s.track_id}": s for s in dataset.sequences}
+        
+        for sequence_key, result in processed_results.items():
+            seq = seq_lookup.get(sequence_key)
+            if not seq or not seq.has_ground_truth:
+                continue
+            
+            pred_by_id = {p.get('frame_id'): _normalize_label(p.get('label', 'none'))
+                          for p in result.get('predictions', []) if p.get('frame_id') is not None}
+            
+            y_true = []
+            y_pred = []
+            for f in seq.frames:
+                if not f.has_ground_truth:
+                    continue
+                if f.frame_id not in pred_by_id:
+                    continue
+                y_true.append(_normalize_label(f.true_label))
+                y_pred.append(pred_by_id[f.frame_id])
+            
+            if not y_true:
+                continue
+            
+            all_true.extend(y_true)
+            all_pred.extend(y_pred)
+            ev = _compute_event_metrics(y_true, y_pred, eval_fps)
+            event_tp += ev["tp"]
+            event_fp += ev["fp"]
+            event_fn += ev["fn"]
+            
+            seq_frame_metrics = _compute_frame_metrics(y_true, y_pred)
+            per_sequence_rows.append({
+                "sequence_key": sequence_key,
+                "support": seq_frame_metrics["support"],
+                "frame_accuracy": seq_frame_metrics["accuracy"],
+                "frame_macro_f1": seq_frame_metrics["macro_f1"],
+                "event_f1": ev["f1"],
+                "event_precision": ev["precision"],
+                "event_recall": ev["recall"]
+            })
+        
+        if all_true:
+            frame_metrics = _compute_frame_metrics(all_true, all_pred)
+            precision = event_tp / (event_tp + event_fp) if (event_tp + event_fp) > 0 else 0.0
+            recall = event_tp / (event_tp + event_fn) if (event_tp + event_fn) > 0 else 0.0
+            event_f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) > 0 else 0.0
+            event_metrics = {
+                "precision": precision,
+                "recall": recall,
+                "f1": event_f1,
+                "tp": event_tp,
+                "fp": event_fp,
+                "fn": event_fn
+            }
+            
+            eval_summary = {
+                "frame_metrics": frame_metrics,
+                "event_metrics": event_metrics,
+                "num_sequences": len(per_sequence_rows),
+                "num_frames": frame_metrics.get("support", 0),
+                "fps": eval_fps
+            }
+            
+            # Save evaluation summary
+            eval_path = Path(config.experiment.output_dir) / "evaluation_metrics.json"
+            with open(eval_path, "w") as f:
+                json.dump(eval_summary, f, indent=2)
+            print(f"  Saved evaluation metrics: {eval_path}")
+            
+            # Save per-sequence CSV
+            if per_sequence_rows:
+                import csv
+                per_seq_path = Path(config.experiment.output_dir) / "evaluation_per_sequence.csv"
+                with open(per_seq_path, "w", newline="") as f:
+                    writer = csv.DictWriter(f, fieldnames=per_sequence_rows[0].keys())
+                    writer.writeheader()
+                    writer.writerows(per_sequence_rows)
+                print(f"  Saved per-sequence metrics: {per_seq_path}")
+            
+            print(f"  Frame Macro F1: {frame_metrics['macro_f1']:.3f}")
+            print(f"  Frame Accuracy: {frame_metrics['accuracy']:.3f}")
+            print(f"  Event F1: {event_metrics['f1']:.3f}")
+        else:
+            print("  No ground truth available for evaluation.")
 
-    # Prompt comparison summary (compare_prompts.py compatible)
-    try:
-        prompt_path = config.model.prompt_template_path
-        prompt_name = Path(prompt_path).stem if prompt_path else "default_prompt"
-        model_name = config.model.type.value
-        summary_timestamp = run_timestamp
-        comparison_dir = Path("prompt_comparison")
-        if comparison_group:
-            comparison_dir = comparison_dir / comparison_group
-        comparison_dir.mkdir(parents=True, exist_ok=True)
-        summary_file = comparison_dir / f"{model_name}_{prompt_name}_{summary_timestamp}_summary.json"
+        # Prompt comparison summary (compare_prompts.py compatible)
+        try:
+            prompt_path = config.model.prompt_template_path
+            prompt_name = Path(prompt_path).stem if prompt_path else "default_prompt"
+            model_name = config.model.type.value
+            summary_timestamp = run_timestamp
+            comparison_dir = Path("prompt_comparison")
+            if comparison_group:
+                comparison_dir = comparison_dir / comparison_group
+            comparison_dir.mkdir(parents=True, exist_ok=True)
+            summary_file = comparison_dir / f"{model_name}_{prompt_name}_{summary_timestamp}_summary.json"
 
-        prompt_summary = {
-            "prompt_file": prompt_path,
-            "timestamp": summary_timestamp,
-            "model": model_name,
-            "inference_mode": config.model.inference_mode.value,
-            "num_sequences": len(processed_results),
-            "accuracy": frame_metrics.get("accuracy") if all_true else None,
-            "metrics": model_metrics,
-            "run_directory": str(config.experiment.output_dir),
-            "frame_metrics": frame_metrics if all_true else None,
-            "event_metrics": event_metrics if all_true else None,
-        }
+            prompt_summary = {
+                "prompt_file": prompt_path,
+                "timestamp": summary_timestamp,
+                "model": model_name,
+                "inference_mode": config.model.inference_mode.value,
+                "num_sequences": len(processed_results),
+                "accuracy": frame_metrics.get("accuracy") if all_true else None,
+                "metrics": model_metrics,
+                "run_directory": str(config.experiment.output_dir),
+                "frame_metrics": frame_metrics if all_true else None,
+                "event_metrics": event_metrics if all_true else None,
+            }
 
-        with open(summary_file, "w") as f:
-            json.dump(prompt_summary, f, indent=2, default=str)
-        print(f"  Saved prompt comparison summary: {summary_file}")
-    except Exception as e:
-        print(f"   Warning: Failed to save prompt comparison summary: {e}")
+            with open(summary_file, "w") as f:
+                json.dump(prompt_summary, f, indent=2, default=str)
+            print(f"  Saved prompt comparison summary: {summary_file}")
+        except Exception as e:
+            print(f"   Warning: Failed to save prompt comparison summary: {e}")
+        # --- END LABELED EVALUATION ---
     
     # Final summary
     print("\n" + "="*80)
@@ -666,11 +826,14 @@ def main():
                        help='Enable verbose logging')
     parser.add_argument('--comparison-group', type=str, default=None,
                        help='Optional subfolder under prompt_comparison for summary output')
+    parser.add_argument('--unlabeled', action='store_true',
+                       help='Run on unlabeled data: skip GT evaluation, produce prediction-only analyses')
     
     args = parser.parse_args()
     
     try:
-        run_pipeline(args.config, args.verbose, args.comparison_group)
+        run_pipeline(args.config, args.verbose, args.comparison_group,
+                     unlabeled=args.unlabeled)
         sys.exit(0)
     except Exception as e:
         print(f"\n Pipeline failed: {e}")

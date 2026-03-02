@@ -1,0 +1,74 @@
+# Configuration for Cosmos Reason 2 — UNLABELED dataset
+# Run with:  python run_pipeline.py --config configs/cosmos_reason2_video_unlabeled.yaml --unlabeled
+
+experiment:
+  name: "cosmos_reason2_video_unlabeled_v1"
+  output_dir: "results/cosmos_reason2_video_unlabeled/"
+  random_seed: 42
+  description: "NVIDIA Cosmos Reason 2 for turn signal detection - video inference mode on unlabeled dataset"
+
+data:
+  input_csv: "data/back_unlabeled_default_none_label.csv"
+  crop_base_dir: "/gpfs/space/projects/ml2024/"
+  frame_base_dir: null
+  max_sequences: null
+  sequence_filter: null
+  video_fps: 10
+
+preprocessing:
+  resize_resolution: [640, 480]
+  normalize: true
+  maintain_aspect_ratio: true
+  padding_color: [0, 0, 0]
+  max_sequence_length: null
+  sequence_stride: 1
+
+model:
+  type: "cosmos_reason2"
+  inference_mode: "video"
+  model_name_or_path: "/gpfs/helios/home/dwenger/models/huggingface/transformers/models--nvidia--Cosmos-Reason2-8B/snapshots/b9806227bdb6f9dce8d0fb9d832718dd8b5efdf5"
+  device: "cuda"
+  batch_size: 1
+  max_new_tokens: 1000
+  temperature: 0.0
+  top_p: 1.0
+  do_sample: false
+  prompt_template_path: "data/prompts/cosmos_exp_05.txt"
+
+  model_kwargs:
+    trust_remote_code: true
+    torch_dtype: "bfloat16"
+    device_map: "auto"
+    target_video_fps: 4
+
+postprocessing:
+  temporal_smoothing_enabled: false
+  # smoothing_method: "mode"
+  # smoothing_window_size: 5
+  min_signal_duration_frames: 1
+  max_signal_duration_frames: null
+  single_image: null
+
+quality_control:
+  random_sample_rate: 0.05
+  stratified_sampling: true
+  flag_both_signals: true
+  flag_rapid_changes: true
+  rapid_change_threshold: 3
+
+output:
+  formats: ["csv", "json"]
+  include_raw_output: false
+  save_visualizations: false
+  visualization_sample_rate: 0.01
+  visualization_output_dir: null
+  export_review_queue: true
+  review_queue_format: "json"
+
+logging:
+  level: "INFO"
+  log_file: null
+  console_output: true
+  track_metrics: true
+  show_progress_bar: true
+  log_frequency: 100

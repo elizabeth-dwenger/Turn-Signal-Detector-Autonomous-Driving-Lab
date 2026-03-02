@@ -90,6 +90,14 @@ class CSVLoader:
             if col not in df.columns:
                 df[col] = None
                 logger.warning(f"Optional column '{col}' not found, using None")
+        
+        # If true_label is all None / placeholder (e.g. 'none'), mark as unlabeled
+        if 'true_label' in df.columns:
+            unique_labels = set(df['true_label'].dropna().astype(str).str.strip().str.lower().unique())
+            placeholder_labels = {'none', 'unknown', 'unlabeled', ''}
+            if unique_labels.issubset(placeholder_labels):
+                logger.info("All true_label values are placeholders — treating dataset as unlabeled")
+                df['true_label'] = None
     
     def _parse_frames(self, df: pd.DataFrame) -> List[Frame]:
         """Convert DataFrame rows to Frame objects"""
