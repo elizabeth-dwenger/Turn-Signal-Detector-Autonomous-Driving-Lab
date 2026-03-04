@@ -184,9 +184,17 @@ def _align_to_unlabeled_recon(df: pd.DataFrame) -> pd.DataFrame:
     """
     For the reconstructed unlabeled CSV: must have ``predicted_label``,
     must NOT have ``true_label`` or ``default_none_label``.
+    When rows come from labeled data, copy true_label into predicted_label
+    so the ground truth is preserved as the prediction.
     """
     df = df.copy()
     if "true_label" in df.columns:
+        # Overwrite predicted_label with true_label where true_label is meaningful
+        true = df["true_label"].fillna("").astype(str).str.strip().str.lower()
+        mask = ~true.isin(["", "none", "unknown", "unlabeled"])
+        if "predicted_label" not in df.columns:
+            df["predicted_label"] = "none"
+        df.loc[mask, "predicted_label"] = true[mask]
         df = df.drop(columns=["true_label"])
     if "default_none_label" in df.columns:
         df = df.drop(columns=["default_none_label"])
