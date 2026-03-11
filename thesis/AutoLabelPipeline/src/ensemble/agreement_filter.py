@@ -154,13 +154,6 @@ class HeuristicResultLoader:
     def load(self, results_path: Path) -> FramePredictionDataset:
         """
         Load heuristic predictions from the JSON results file.
-
-        Args:
-            results_path: Path to ``results.json`` produced by test_heuristic.py,
-                          OR a directory containing ``results.json``.
-
-        Returns:
-            FramePredictionDataset populated with per-frame predictions.
         """
         results_path = Path(results_path)
 
@@ -270,14 +263,6 @@ class VLMResultLoader:
     def load(self, results_dir: Path) -> FramePredictionDataset:
         """
         Load VLM predictions from the standard results directory.
-
-        Args:
-            results_dir: Either the direct directory containing CSV/JSON files,
-                         or the model root (e.g., ``results/cosmos_reason2_video``)
-                         in which case ``test_runs/<latest>/`` is auto-discovered.
-
-        Returns:
-            FramePredictionDataset with per-frame predictions.
         """
         results_dir = Path(results_dir)
 
@@ -586,16 +571,6 @@ class AgreementFilter:
     ) -> Dict:
         """
         End-to-end: filter, evaluate (optional), save everything.
-
-        Args:
-            dataset_a: Predictions from model A.
-            dataset_b: Predictions from model B.
-            output_dir: Where to write results.
-            ground_truth: Optional mapping (sequence_id, frame_id) → label.
-
-        Returns:
-            Dict with keys: filtered_df, report, metrics (if ground_truth given),
-            and output_paths.
         """
         filtered_df, report = self.filter(dataset_a, dataset_b)
 

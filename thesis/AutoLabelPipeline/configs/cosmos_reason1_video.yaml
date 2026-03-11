@@ -7,7 +7,7 @@ experiment:
   description: "NVIDIA Cosmos Reason 1 for turn signal detection - video inference mode"
 
 data:
-  input_csv: "data/tracking_data.csv"
+  input_csv: "data/tracking_data_front.csv"
   crop_base_dir: "/gpfs/space/projects/ml2024/"
   frame_base_dir: null
   max_sequences: null
@@ -37,7 +37,7 @@ model:
   temperature: 0.0
   top_p: 1.0
   do_sample: false
-  prompt_template_path: "data/prompts/cosmos_exp_05.txt"
+  prompt_template_path: "data/prompts/front/cosmos_exp_04.txt"
   
   
   model_kwargs:

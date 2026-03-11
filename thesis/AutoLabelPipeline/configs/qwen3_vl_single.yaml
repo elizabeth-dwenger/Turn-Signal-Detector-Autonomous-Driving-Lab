@@ -8,7 +8,7 @@ experiment:
   description: "Qwen3-VL for turn signal detection - single image mode with episode reconstruction"
 
 data:
-  input_csv: "data/tracking_data.csv"
+  input_csv: "data/tracking_data_front.csv"
   crop_base_dir: "/gpfs/space/projects/ml2024/"
   frame_base_dir: null
   max_sequences: null
@@ -36,7 +36,7 @@ model:
   temperature: 0.0
   top_p: 1.0
   do_sample: false
-  prompt_template_path: "data/prompts/single_exp_05.txt"
+  prompt_template_path: "data/prompts/front/single_exp_03.txt"
   
   model_kwargs:
     trust_remote_code: true

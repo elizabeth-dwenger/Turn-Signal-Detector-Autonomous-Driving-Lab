@@ -2,7 +2,7 @@
 # This file can be referenced by other configs to avoid duplication
 
 data:
-  input_csv: "data/tracking_data.csv"
+  input_csv: "data/tracking_data_front.csv"
   crop_base_dir: "/gpfs/space/projects/ml2024/"
   frame_base_dir: null
   max_sequences: null  # Process all sequences
