@@ -1,0 +1,53 @@
+# signal_classifier/config_human_extraction.yaml
+# Config for extracting features from human-labeled data only
+
+data:
+  front_csv: "data/tracking_data_front.csv"
+  back_csv:  "data/tracking_data.csv"
+  crop_base_dir: "/gpfs/space/projects/ml2024/"
+  label_column: "true_label"
+  min_sequence_frames: 10
+  train_ratio: 0.70
+  val_ratio: 0.15
+  split_seed: 42
+
+features:
+  dino_model_name: "facebook/dinov2-small"
+  input_size: 224
+  spatial_tokens: 32
+  output_dir: "features_human/"  # Different directory to keep separate
+  batch_size: 64
+  augment_flip: false  # No augmentation for test data
+  device: "cuda"
+
+window:
+  size: 10
+  train_stride: 5
+  inference_stride: 2
+  label_purity_threshold: 0.80
+
+model:
+  d_model: 256
+  d_hidden: 128
+  num_layers: 3
+  num_heads: 8
+  dropout: 0.1
+
+training:
+  epochs: 50
+  batch_size: 64
+  learning_rate: 3.0e-4
+  weight_decay: 1.0e-4
+  loss: "cross_entropy"
+  focal_gamma: 2.0
+  use_class_weights: true
+  checkpoint_dir: "checkpoints/signal_classifier/"
+  early_stopping_patience: 10
+  device: "cuda"
+  num_workers: 4
+
+inference:
+  checkpoint: "checkpoints/signal_classifier/best.pt"
+  output_dir: "results/signal_classifier/"
+  output_format: "csv"
+  include_per_frame_detail: false

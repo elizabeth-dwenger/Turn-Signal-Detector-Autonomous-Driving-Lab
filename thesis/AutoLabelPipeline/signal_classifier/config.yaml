@@ -1,0 +1,122 @@
+# signal_classifier/config.yaml
+# Configuration for the DINO + TimeSformer-style turn signal classifier.
+
+# ── Data ─────────────────────────────────────────────────────────────────────
+data:
+  # ── Autolabeled CSVs (for training and validation) ────────────────────────
+  # CSV format matches existing pipeline output (see reconstructed_cosmos_results_unlabeled.csv):
+  #   sequence, track_id, frame_id, class_id, score, x1, y1, x2, y2,
+  #   crop_path, img_path, width, height, sequence_id,
+  #   sampled_frame_id, signal_start_frame, predicted_label
+  front_csv: "results/reconstructed_cosmos_front_results_unlabeled_prompt5.csv"
+  back_csv:  "results/reconstructed_cosmos_results_unlabeled.csv"
+
+  # ── Human-labeled CSVs (for final test evaluation) ────────────────────────
+  # These contain human ground truth labels instead of VLM predictions.
+  # Format is identical to autolabeled CSVs; label column should be 'true_label'
+  # or adjust human_label_column below 
+  human_test_front_csv: "data/tracking_data_front.csv"
+  human_test_back_csv:  "data/tracking_data.csv"
+  human_label_column: "true_label"  # column name in human CSV that holds the label
+
+  # Base directory for crop images (crop_path in CSV may be absolute or relative to this)
+  crop_base_dir: "/gpfs/space/projects/ml2024/"
+
+  # Column in the CSV that holds the VLM-predicted label.
+  # "both" is automatically normalised to "hazard".
+  # Valid values after normalisation: none(0), left(1), right(2), hazard(3)
+  label_column: "predicted_label"
+
+  # Sequences with fewer frames than this are discarded entirely.
+  min_sequence_frames: 10
+
+  # Train / val / test split is performed at the RECORDING level
+  # (the timestamp+name part of sequence_id, before the camera suffix)
+  # to prevent data leakage from the same physical scene appearing in multiple splits.
+  train_ratio: 0.70
+  val_ratio: 0.15   # test = 1 - train_ratio - val_ratio
+  split_seed: 42
+
+# ── Feature Extraction (Stage 1 — run once before any training) ──────────────
+features:
+  # DINOv2 ViT-S/14: patch size 14*14, output dim D=384.
+  dino_model_name: "facebook/dinov2-small"
+  # Uncomment and set to use a local HuggingFace snapshot instead:
+  # dino_model_path: ""
+
+  # Crops are stretched to input_size * input_size (simple resize, no letterboxing).
+  # DINOv2 requires multiples of 14; 224 = 16 * 14.
+  input_size: 224
+
+  # P: number of spatial patch tokens per frame after adaptive average pooling
+  # from the 256 raw tokens (16*16 grid).  Experiment with: 8, 16, 32, 64.
+  # More = more spatial detail, more memory; 32 is the recommended starting point.
+  spatial_tokens: 32
+
+  # Root directory where .pt feature tensors and metadata.json are written.
+  # Sub-directories "front/" and "back/" are created automatically.
+  output_dir: "features/"
+
+  # Number of frames processed in one DINOv2 forward pass (tunes GPU memory usage).
+  batch_size: 64
+
+  # If true, each sequence also produces a horizontally-flipped copy with swapped
+  # left/right label (none→none, left→right, right→left, hazard→hazard).
+  # Flipped copies are stored as {key}_hflip.pt and included in training only.
+  augment_flip: true
+
+  device: "cuda"
+
+# ── Sliding Window ────────────────────────────────────────────────────────────
+window:
+  # T: frames per window.  10 frames = 1 s at 10 FPS ≈ 1.5 blink cycles.
+  size: 10
+
+  # Step between consecutive windows during training (~50 % overlap).
+  train_stride: 5
+
+  # Denser step at inference for smoother per-window predictions.
+  inference_stride: 2
+
+  # A window is kept for training only if at least this fraction of its frames
+  # share the same label (handles VLM noise near segment boundaries).
+  # Windows that fail this check are silently skipped during training.
+  label_purity_threshold: 0.80
+
+# ── Model ─────────────────────────────────────────────────────────────────────
+model:
+  d_model: 256         # internal embedding dimension (try 128, 256)
+  d_hidden: 128        # classification MLP hidden dim
+  num_layers: 3        # number of DividedAttentionBlocks (try 2, 3, 4)
+  num_heads: 8         # attention heads; d_model must be divisible by num_heads
+  dropout: 0.1
+
+# ── Training ──────────────────────────────────────────────────────────────────
+training:
+  epochs: 50
+  batch_size: 64
+  learning_rate: 3.0e-4
+  weight_decay: 1.0e-4
+
+  # "cross_entropy" or "focal"
+  loss: "cross_entropy"
+  focal_gamma: 2.0          # only used when loss == "focal"
+
+  # Weight the loss inversely by class frequency (computed from training windows).
+  use_class_weights: true
+
+  checkpoint_dir: "checkpoints/signal_classifier/"
+
+  # Stop training if val accuracy does not improve for this many epochs.
+  early_stopping_patience: 10
+
+  device: "cuda"
+  num_workers: 4
+
+# ── Inference ─────────────────────────────────────────────────────────────────
+inference:
+  checkpoint: "checkpoints/signal_classifier/best.pt"
+  output_dir: "results/signal_classifier/"
+  output_format: "csv"    # "csv" or "json"  # For human test split, whether to include per-frame analysis in output
+  # (useful for debugging misclassifications)
+  include_per_frame_detail: false

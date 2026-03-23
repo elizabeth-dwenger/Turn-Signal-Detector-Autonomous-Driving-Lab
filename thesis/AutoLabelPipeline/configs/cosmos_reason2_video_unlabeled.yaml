@@ -3,12 +3,12 @@
 
 experiment:
   name: "cosmos_reason2_video_unlabeled_v1"
-  output_dir: "results/cosmos_reason2_video_unlabeled/"
+  output_dir: "results/cosmos_reason2_front_video_unlabeled/"
   random_seed: 42
   description: "NVIDIA Cosmos Reason 2 for turn signal detection - video inference mode on unlabeled dataset"
 
 data:
-  input_csv: "data/back_unlabeled_default_none_label.csv"
+  input_csv: "data/front_unlabeled_default_none_label.csv"
   crop_base_dir: "/gpfs/space/projects/ml2024/"
   frame_base_dir: null
   max_sequences: null
@@ -33,7 +33,7 @@ model:
   temperature: 0.0
   top_p: 1.0
   do_sample: false
-  prompt_template_path: "data/prompts/cosmos_exp_05.txt"
+  prompt_template_path: "data/prompts/front/cosmos_exp_01.txt"
 
   model_kwargs:
     trust_remote_code: true
