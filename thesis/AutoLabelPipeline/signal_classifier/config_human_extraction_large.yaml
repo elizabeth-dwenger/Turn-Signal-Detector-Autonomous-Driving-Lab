@@ -12,11 +12,11 @@ data:
   split_seed: 42
 
 features:
-  dino_model_name: "facebook/dinov2-small"
+  dino_model_name: "facebook/dinov2-large"
   input_size: 224
   spatial_tokens: 64
-  output_dir: "features/features_human/"  # Different directory to keep separate
-  batch_size: 64
+  output_dir: "features/features_human_large/"  # Different directory to keep separate
+  batch_size: 32
   augment_flip: false  # No augmentation for test data
   device: "cuda"
 

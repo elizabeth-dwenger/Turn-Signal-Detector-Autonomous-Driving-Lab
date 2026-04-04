@@ -1,0 +1,73 @@
+# Experiment R1: baseline large-model training with balanced sampling.
+# Assumes the existing R0 features live in features_large/.
+
+data:
+  front_csv: "results/reconstructed_cosmos_front_results_unlabeled_prompt5.csv"
+  back_csv:  "results/reconstructed_cosmos_results_unlabeled.csv"
+  human_test_front_csv: "data/tracking_data_front.csv"
+  human_test_back_csv:  "data/tracking_data.csv"
+  human_label_column: "true_label"
+  crop_base_dir: "/gpfs/space/projects/ml2024/"
+  label_column: "predicted_label"
+  min_sequence_frames: 10
+  train_ratio: 0.70
+  val_ratio: 0.15
+  split_seed: 42
+
+features:
+  dino_model_name: "facebook/dinov2-small"
+  input_size: 224
+  spatial_tokens: 64
+  output_dir: "/gpfs/helios/home/dwenger/AutoLabelPipeline/features/features_large/"
+  batch_size: 32
+  augment_flip: true
+  augment_photometric: false
+  augment_brightness_contrast: false
+  augment_gamma: false
+  augment_noise: false
+  augment_blur: false
+  augment_jpeg: false
+  minority_only_aug: false
+  device: "cuda"
+
+window:
+  size: 10
+  train_stride: 3
+  inference_stride: 3
+  label_purity_threshold: 0.80
+
+model:
+  d_model: 256
+  d_hidden: 128
+  num_layers: 3
+  num_heads: 8
+  dropout: 0.1
+
+training:
+  epochs: 50
+  batch_size: 64
+  learning_rate: 3.0e-4
+  weight_decay: 1.0e-4
+  loss: "cross_entropy"
+  focal_gamma: 2.0
+  use_class_weights: true
+  use_balanced_sampler: true
+  mixup_enabled: false
+  mixup_alpha: 0.2
+  mixup_prob: 0.0
+  mixup_same_class_only: true
+  mixup_same_camera_only: true
+  temporal_aug_enabled: false
+  temporal_jitter_prob: 0.0
+  temporal_drop_prob: 0.0
+  temporal_duplicate_prob: 0.0
+  checkpoint_dir: "/gpfs/helios/home/dwenger/AutoLabelPipeline/checkpoints/signal_classifier_large/r1/"
+  early_stopping_patience: 10
+  device: "cuda"
+  num_workers: 4
+
+inference:
+  checkpoint: "/gpfs/helios/home/dwenger/AutoLabelPipeline/checkpoints/signal_classifier_large/r1/best.pt"
+  output_dir: "/gpfs/helios/home/dwenger/AutoLabelPipeline/results/signal_classifier_large/r1/"
+  output_format: "csv"
+  include_per_frame_detail: false

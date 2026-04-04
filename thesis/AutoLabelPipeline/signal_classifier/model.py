@@ -133,9 +133,13 @@ class SignalClassifier(nn.Module):
         super().__init__()
         self.T = T
         self.P = P
+        self.d_model = d_model
 
-        # Project raw DINO features (d_dino) into model dimension (d_model)
-        self.linear_projection = nn.Linear(d_dino, d_model)
+        # Project raw DINO features (d_dino) into model dimension (d_model) via 2D convolution
+        # Expected input shape from data: [B, T, 256, d_dino]
+        # We reshape to [B*T, d_dino, 16, 16] and apply conv, then flatten to [B, T, P, d_model]
+        # Using stride=2 reduces 16x16 to 8x8 (P=64) spatial tokens.
+        self.conv_projection = nn.Conv2d(d_dino, d_model, kernel_size=3, stride=2, padding=1)
 
         # Learned positional encodings, broadcast over the complementary dimension.
         # temporal_pos[t] is added to all P patch tokens at time step t.
@@ -162,14 +166,28 @@ class SignalClassifier(nn.Module):
         """
         Parameters
         ----------
-        x : FloatTensor [B, T, P, d_dino]
+        x : FloatTensor [B, T, 256, d_dino] (raw unpooled 16x16 patch tokens)
 
         Returns
         -------
         logits : FloatTensor [B, 4]
         """
-        # Project to d_model
-        x = self.linear_projection(x)          # [B, T, P, d_model]
+        B, T, num_patches, D = x.shape
+        # We expect a 16x16 grid of unpooled tokens = 256
+        assert num_patches == 256, f"Expected 256 patch tokens, got {num_patches}"
+
+        # Reshape for 2D Convolution: [B*T, D, 16, 16]
+        x = x.permute(0, 1, 3, 2).contiguous()   # [B, T, D, 256]
+        x = x.view(B * T, D, 16, 16)
+
+        # Apply spatial convolution
+        x = self.conv_projection(x)              # [B*T, d_model, H, W]  (e.g., H=W=8)
+        _, _, H, W = x.shape
+        new_P = H * W
+        assert new_P == self.P, f"Conv output P={new_P} does not match target self.P={self.P}"
+
+        # Reshape back to sequence: [B, T, d_model, P] -> [B, T, P, d_model]
+        x = x.view(B, T, self.d_model, new_P).permute(0, 1, 3, 2).contiguous()
 
         # Add positional encodings (broadcasting handles the missing dims)
         x = x + self.temporal_pos              # [B, T, P, d_model]

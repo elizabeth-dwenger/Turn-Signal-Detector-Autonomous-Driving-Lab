@@ -35,12 +35,21 @@ LABEL_NAMES = ["none", "left", "right", "hazard"]
 
 class _Window:
     """struct describing one sliding-window training sample."""
-    __slots__ = ("feature_file", "start", "label_int")
+    __slots__ = ("feature_file", "start", "label_int", "camera", "sequence_id")
 
-    def __init__(self, feature_file: str, start: int, label_int: int):
+    def __init__(
+        self,
+        feature_file: str,
+        start: int,
+        label_int: int,
+        camera: str,
+        sequence_id: str,
+    ):
         self.feature_file = feature_file
         self.start        = start
         self.label_int    = label_int
+        self.camera       = camera
+        self.sequence_id  = sequence_id
 
 
 class SlidingWindowDataset(Dataset):
@@ -115,28 +124,46 @@ class SlidingWindowDataset(Dataset):
             per_frame_labels: List[int] = entry.get("per_frame_labels", [])
             num_frames: int             = entry.get("num_frames", len(per_frame_labels))
             feature_file: str           = entry["feature_file"]
+            sequence_id: str            = entry.get("sequence_id", key)
 
-            for start in range(0, num_frames - window_size + 1, stride):
+            start = 0
+            while start <= num_frames - window_size:
                 window_labels = per_frame_labels[start : start + window_size]
 
                 if not window_labels:
+                    start += stride
                     continue
+
+                # Advance pointer based on dynamic stride (oversampling active signals)
+                # If there's an active signal (1, 2, 3), take a step of 1 to oversample (during train).
+                has_signal = any(lbl in (1, 2, 3) for lbl in window_labels)
+                current_stride = 1 if (has_signal and is_training) else stride
 
                 majority_label = max(set(window_labels), key=window_labels.count)
                 purity = window_labels.count(majority_label) / len(window_labels)
 
                 # Skip transition windows during training
                 if is_training and purity < label_purity_threshold:
+                    start += current_stride
                     continue
 
-                self.windows.append(_Window(feature_file, start, majority_label))
+                self.windows.append(
+                    _Window(
+                        feature_file=feature_file,
+                        start=start,
+                        label_int=majority_label,
+                        camera=camera,
+                        sequence_id=sequence_id,
+                    )
+                )
+                start += current_stride
 
     # ── Dataset interface ──────────────────────────────────────────────────────
 
     def __len__(self) -> int:
         return len(self.windows)
 
-    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
+    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor, Dict[str, object]]:
         """
         Returns
         -------
@@ -147,7 +174,14 @@ class SlidingWindowDataset(Dataset):
         # Load tensor from disk on every access; OS page cache handles efficiency.
         full_features: torch.Tensor = torch.load(w.feature_file, weights_only=True)
         window = full_features[w.start : w.start + self.window_size].float()
-        return window, torch.tensor(w.label_int, dtype=torch.long)
+        metadata = {
+            "camera": w.camera,
+            "feature_file": w.feature_file,
+            "start": w.start,
+            "label": w.label_int,
+            "sequence_id": w.sequence_id,
+        }
+        return window, torch.tensor(w.label_int, dtype=torch.long), metadata
 
     # ── Utilities ──────────────────────────────────────────────────────────────
 

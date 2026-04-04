@@ -19,8 +19,10 @@ Usage:
 """
 
 import argparse
+import io
 import json
 import logging
+import random
 import sys
 from collections import Counter
 from pathlib import Path
@@ -30,7 +32,7 @@ import pandas as pd
 import torch
 import torch.nn.functional as F
 import yaml
-from PIL import Image
+from PIL import Image, ImageEnhance, ImageFilter
 from tqdm import tqdm
 
 logging.basicConfig(
@@ -96,30 +98,10 @@ def extract_patch_tokens(
     for i in range(0, len(images), batch_size):
         batch = images[i : i + batch_size]
         inputs = processor(images=batch, return_tensors="pt").to(device)
-        # last_hidden_state: [B, 257, 384] - index 0 is the CLS token
-        patch_tokens = model(**inputs).last_hidden_state[:, 1:, :]   # [B, 256, 384]
+        # last_hidden_state: [B, 257, D] - index 0 is the CLS token
+        patch_tokens = model(**inputs).last_hidden_state[:, 1:, :]   # [B, 256, D]
         all_tokens.append(patch_tokens.cpu())
-    return torch.cat(all_tokens, dim=0)   # [N, 256, 384]
-
-
-def spatial_downsample(tokens: torch.Tensor, target_p: int) -> torch.Tensor:
-    """
-    Reduce 256 spatial patch tokens to target_p via adaptive average pooling.
-
-    Parameters
-    ----------
-    tokens   : [N, 256, 384]
-    target_p : desired number of spatial tokens P
-
-    Returns
-    -------
-    Tensor [N, target_p, 384]
-    """
-    # adaptive_avg_pool1d operates on the last dimension, so we permute:
-    # [N, 256, 384] -> [N, 384, 256] -> pool -> [N, 384, P] -> [N, P, 384]
-    t = tokens.permute(0, 2, 1)                        # [N, 384, 256]
-    t = F.adaptive_avg_pool1d(t, target_p)             # [N, 384, P]
-    return t.permute(0, 2, 1)                          # [N, P, 384]
+    return torch.cat(all_tokens, dim=0)   # [N, 256, D]
 
 
 # ── Path resolution (mirrors existing ImageLoader logic) ─────────────────────
@@ -143,6 +125,47 @@ def resolve_crop_path(path_str: str, crop_base_dir: Path) -> Optional[Path]:
     return None
 
 
+def apply_photometric_augmentation(
+    image: Image.Image,
+    cfg: dict,
+    rng: random.Random,
+    strong: bool = False,
+) -> Image.Image:
+    """Apply mild PIL-based augmentation before DINO feature extraction."""
+    out = image
+    magnitude = 0.18 if strong else 0.10
+
+    if cfg.get("augment_brightness_contrast", False):
+        brightness = 1.0 + rng.uniform(-magnitude, magnitude)
+        contrast = 1.0 + rng.uniform(-magnitude, magnitude)
+        out = ImageEnhance.Brightness(out).enhance(brightness)
+        out = ImageEnhance.Contrast(out).enhance(contrast)
+
+    if cfg.get("augment_gamma", False):
+        gamma = rng.uniform(0.85, 1.15) if strong else rng.uniform(0.92, 1.08)
+        lut = [min(255, max(0, int(((i / 255.0) ** gamma) * 255.0))) for i in range(256)]
+        out = out.point(lut * 3)
+
+    if cfg.get("augment_blur", False) and rng.random() < (0.35 if strong else 0.20):
+        out = out.filter(ImageFilter.GaussianBlur(radius=0.8 if strong else 0.5))
+
+    if cfg.get("augment_noise", False):
+        noise_scale = 6.0 if strong else 3.0
+        tensor = torch.tensor(list(out.getdata()), dtype=torch.float32).view(out.size[1], out.size[0], 3)
+        noise = torch.randn_like(tensor) * noise_scale
+        tensor = (tensor + noise).clamp(0, 255).to(torch.uint8)
+        out = Image.fromarray(tensor.numpy(), mode="RGB")
+
+    if cfg.get("augment_jpeg", False) and rng.random() < 0.25:
+        buffer = io.BytesIO()
+        quality = rng.randint(55, 80) if strong else rng.randint(70, 88)
+        out.save(buffer, format="JPEG", quality=quality)
+        buffer.seek(0)
+        out = Image.open(buffer).convert("RGB")
+
+    return out
+
+
 # ── Core per-sequence processing ─────────────────────────────────────────────
 
 def process_one_sequence(
@@ -158,6 +181,7 @@ def process_one_sequence(
     min_frames: int,
     do_flip: bool,
     flip_output_path: Optional[Path],
+    augment_cfg: dict,
 ) -> Optional[Dict]:
     """
     Extract features for one sequence and (optionally) its horizontal mirror.
@@ -176,6 +200,16 @@ def process_one_sequence(
         lbl = normalize_label(row.get(label_column))
         per_frame_labels.append(lbl if lbl is not None else 0)   # default none
 
+    label_counter = Counter(per_frame_labels)
+    dominant_label = label_counter.most_common(1)[0][0] if label_counter else 0
+    # Without global class stats at extraction time, treat active-signal sequences as the
+    # minority-focused subset when minority_only_aug is enabled.
+    use_stronger_aug = augment_cfg.get("minority_only_aug", False) and dominant_label in (1, 2, 3)
+    should_augment = augment_cfg.get("augment_photometric", False) and (
+        not augment_cfg.get("minority_only_aug", False) or dominant_label in (1, 2, 3)
+    )
+    seq_rng = random.Random(str(group["sequence_id"].iloc[0]))
+
     # Load and resize crops
     images: List[Image.Image] = []
     frame_ids: List[int] = []
@@ -186,6 +220,8 @@ def process_one_sequence(
             continue
         try:
             img = Image.open(cp).convert("RGB").resize((224, 224), Image.BILINEAR)
+            if should_augment:
+                img = apply_photometric_augmentation(img, augment_cfg, seq_rng, strong=use_stronger_aug)
             images.append(img)
             frame_ids.append(int(row["frame_id"]))
         except Exception as e:
@@ -204,8 +240,7 @@ def process_one_sequence(
     ]
 
     # Extract features
-    tokens = extract_patch_tokens(images, processor, model, device, batch_size)  # [T, 256, 384]
-    tokens = spatial_downsample(tokens, spatial_tokens)                           # [T, P, 384]
+    tokens = extract_patch_tokens(images, processor, model, device, batch_size)  # [T, 256, D]
 
     # Save original features (tensor only — safe for any torch.load settings)
     torch.save(tokens, output_path)
@@ -230,7 +265,6 @@ def process_one_sequence(
     if do_flip and flip_output_path is not None:
         flipped_images = [img.transpose(Image.FLIP_LEFT_RIGHT) for img in images]
         flip_tokens = extract_patch_tokens(flipped_images, processor, model, device, batch_size)
-        flip_tokens = spatial_downsample(flip_tokens, spatial_tokens)
         torch.save(flip_tokens, flip_output_path)
 
         flipped_labels = [FLIP_LABEL[l] for l in per_frame_labels_filtered]
@@ -266,6 +300,7 @@ def process_csv(
     spatial_tokens: int,
     min_frames: int,
     augment_flip: bool,
+    augment_cfg: dict,
 ) -> Dict:
     """
     Process one camera CSV and return all metadata entries.
@@ -304,6 +339,7 @@ def process_csv(
             min_frames=min_frames,
             do_flip=augment_flip,
             flip_output_path=flip_path,
+            augment_cfg=augment_cfg,
         )
 
         if result is None:
@@ -382,6 +418,7 @@ def main():
             spatial_tokens=spatial_tokens,
             min_frames=min_frames,
             augment_flip=augment_flip,
+            augment_cfg=fc,
         )
         all_metadata.update(entries)
 

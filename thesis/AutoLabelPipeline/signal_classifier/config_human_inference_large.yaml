@@ -41,8 +41,8 @@ data:
 
 # ── Feature Extraction (Stage 1 — run once before any training) ──────────────
 features:
-  # DINOv2 ViT-S/14: patch size 14×14, output dim D=384.
-  dino_model_name: "facebook/dinov2-small"
+  # DINOv2 ViT-L/14: patch size 14×14, output dim D=1024.
+  dino_model_name: "facebook/dinov2-large"
   # Uncomment and set to use a local HuggingFace snapshot instead:
   # dino_model_path: ""
 
@@ -56,10 +56,10 @@ features:
   # Root directory where .pt feature tensors and metadata.json are written.
   # Sub-directories "front/" and "back/" are created automatically.
   # This uses human-labeled features for evaluation.
-  output_dir: "features/features_human/"
+  output_dir: "features/features_human_large/"
 
   # Number of frames processed in one DINOv2 forward pass (tunes GPU memory usage).
-  batch_size: 64
+  batch_size: 32
 
   # If true, each sequence also produces a horizontally-flipped copy with swapped
   # left/right label (none→none, left→right, right→left, hazard→hazard).
@@ -116,7 +116,7 @@ training:
 
 # ── Inference ─────────────────────────────────────────────────────────────────
 inference:
-  checkpoint: "checkpoints/signal_classifier/best.pt"
-  output_dir: "results/signal_classifier/"
+  checkpoint: "checkpoints/signal_classifier_large/best.pt"
+  output_dir: "results/signal_classifier_large/"
   output_format: "csv"    # "csv" or "json"
   include_per_frame_detail: false

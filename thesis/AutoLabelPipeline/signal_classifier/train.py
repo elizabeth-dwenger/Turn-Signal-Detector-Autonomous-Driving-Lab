@@ -17,14 +17,13 @@ Features
 import argparse
 import json
 import logging
-import math
 import time
 from pathlib import Path
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, WeightedRandomSampler
 import yaml
 
 from .dataset import SlidingWindowDataset, build_datasets, LABEL_NAMES
@@ -73,6 +72,114 @@ def build_criterion(cfg_training: dict, class_weights: torch.Tensor) -> nn.Modul
         return FocalLoss(gamma=gamma, weight=weight)
     # default: cross-entropy
     return nn.CrossEntropyLoss(weight=weight)
+
+
+def build_train_sampler(dataset: SlidingWindowDataset, cfg_training: dict):
+    """Optionally build an inverse-frequency sampler over training windows."""
+    if not cfg_training.get("use_balanced_sampler", False):
+        return None
+
+    class_weights = dataset.class_weights()
+    sample_weights = torch.tensor(
+        [float(class_weights[w.label_int]) for w in dataset.windows],
+        dtype=torch.double,
+    )
+    return WeightedRandomSampler(
+        weights=sample_weights,
+        num_samples=len(sample_weights),
+        replacement=True,
+    )
+
+
+def apply_same_class_mixup(
+    features: torch.Tensor,
+    labels: torch.Tensor,
+    metadata: dict,
+    cfg_training: dict,
+) -> torch.Tensor:
+    """Mix features only with samples from the same class and camera."""
+    if not cfg_training.get("mixup_enabled", False):
+        return features
+
+    mixup_prob = float(cfg_training.get("mixup_prob", 0.0))
+    if mixup_prob <= 0.0 or torch.rand(1).item() >= mixup_prob:
+        return features
+
+    alpha = float(cfg_training.get("mixup_alpha", 0.2))
+    if alpha <= 0.0:
+        return features
+
+    cameras = metadata.get("camera", []) if isinstance(metadata, dict) else []
+    same_camera_only = cfg_training.get("mixup_same_camera_only", True)
+    same_class_only = cfg_training.get("mixup_same_class_only", True)
+
+    mixed = features.clone()
+    batch_size = labels.size(0)
+    for i in range(batch_size):
+        candidates = []
+        for j in range(batch_size):
+            if i == j:
+                continue
+            if same_class_only and int(labels[j].item()) != int(labels[i].item()):
+                continue
+            if same_camera_only and cameras and cameras[j] != cameras[i]:
+                continue
+            candidates.append(j)
+
+        if not candidates:
+            continue
+
+        partner_idx = candidates[torch.randint(len(candidates), (1,)).item()]
+        lam = torch.distributions.Beta(alpha, alpha).sample().item()
+        mixed[i] = lam * features[i] + (1.0 - lam) * features[partner_idx]
+
+    return mixed
+
+
+def apply_temporal_augmentation(
+    features: torch.Tensor,
+    cfg_training: dict,
+) -> torch.Tensor:
+    """Apply mild, fixed-length temporal augmentation to feature windows."""
+    if not cfg_training.get("temporal_aug_enabled", False):
+        return features
+
+    augmented = features.clone()
+    batch_size, num_frames = augmented.shape[:2]
+    if num_frames < 2:
+        return augmented
+
+    jitter_prob = float(cfg_training.get("temporal_jitter_prob", 0.0))
+    drop_prob = float(cfg_training.get("temporal_drop_prob", 0.0))
+    duplicate_prob = float(cfg_training.get("temporal_duplicate_prob", 0.0))
+
+    for i in range(batch_size):
+        window = augmented[i]
+
+        if jitter_prob > 0.0 and torch.rand(1).item() < jitter_prob:
+            if torch.rand(1).item() < 0.5:
+                window = torch.cat([window[:1], window[:-1]], dim=0)
+            else:
+                window = torch.cat([window[1:], window[-1:]], dim=0)
+
+        if drop_prob > 0.0 and torch.rand(1).item() < drop_prob and num_frames > 2:
+            drop_idx = torch.randint(0, num_frames, (1,)).item()
+            kept = torch.cat([window[:drop_idx], window[drop_idx + 1 :]], dim=0)
+            pad_idx = min(drop_idx, kept.size(0) - 1)
+            pad_frame = kept[pad_idx : pad_idx + 1]
+            window = torch.cat([kept[:pad_idx], pad_frame, kept[pad_idx:]], dim=0)
+
+        if duplicate_prob > 0.0 and torch.rand(1).item() < duplicate_prob and num_frames > 2:
+            dup_idx = torch.randint(0, num_frames, (1,)).item()
+            duplicate = window[dup_idx : dup_idx + 1]
+            insert_at = min(dup_idx + 1, num_frames)
+            expanded = torch.cat([window[:insert_at], duplicate, window[insert_at:]], dim=0)
+            remove_idx = min(num_frames, expanded.size(0) - 1)
+            window = torch.cat([expanded[:remove_idx], expanded[remove_idx + 1 :]], dim=0)
+
+        augmented[i] = window
+
+    return augmented
 
 
 # ── Metrics ───────────────────────────────────────────────────────────────────
@@ -128,17 +235,29 @@ def run_epoch(
     optimizer=None,
     device: str = "cuda",
     is_train: bool = True,
+    cfg_training: dict = None,
 ):
     """Run one epoch.  Returns (avg_loss, all_preds, all_labels)."""
     model.train(is_train)
     total_loss = 0.0
     all_preds, all_labels = [], []
+    cfg_training = cfg_training or {}
 
     ctx = torch.enable_grad() if is_train else torch.no_grad()
     with ctx:
-        for features, labels in loader:
+        for batch in loader:
+            if len(batch) == 3:
+                features, labels, metadata = batch
+            else:
+                features, labels = batch
+                metadata = {}
+
             features = features.to(device, non_blocking=True)
             labels   = labels.to(device, non_blocking=True)
+
+            if is_train:
+                features = apply_temporal_augmentation(features, cfg_training)
+                features = apply_same_class_mixup(features, labels, metadata, cfg_training)
 
             logits = model(features)
             loss   = criterion(logits, labels)
@@ -217,10 +336,12 @@ def main():
              ", ".join(f"{LABEL_NAMES[i]}={train_counts[i]}" for i in range(4)))
 
     num_workers = tc.get("num_workers", 4)
+    train_sampler = build_train_sampler(train_ds, tc)
     train_loader = DataLoader(
         train_ds,
         batch_size  = tc["batch_size"],
-        shuffle     = True,
+        shuffle     = train_sampler is None,
+        sampler     = train_sampler,
         num_workers = num_workers,
         pin_memory  = True,
     )
@@ -233,10 +354,12 @@ def main():
     )
 
     # ── Model ──────────────────────────────────────────────────────────────
+    dino_name = fc.get("dino_model_name", "")
+    d_dino = 1024 if "large" in dino_name else 384
     model = SignalClassifier(
         T          = wc["size"],
         P          = fc["spatial_tokens"],
-        d_dino     = 384,
+        d_dino     = d_dino,
         d_model    = mc["d_model"],
         d_hidden   = mc["d_hidden"],
         num_layers = mc["num_layers"],
@@ -252,6 +375,12 @@ def main():
     log.info("Class weights: " +
              ", ".join(f"{LABEL_NAMES[i]}={class_weights[i]:.3f}" for i in range(4)))
     criterion = build_criterion(tc, class_weights.to(device))
+    log.info(
+        "Training augmentations: "
+        f"balanced_sampler={tc.get('use_balanced_sampler', False)}, "
+        f"mixup={tc.get('mixup_enabled', False)}, "
+        f"temporal_aug={tc.get('temporal_aug_enabled', False)}"
+    )
 
     # ── Optimiser and scheduler ────────────────────────────────────────────
     optimizer = torch.optim.AdamW(
@@ -286,14 +415,14 @@ def main():
 
         # Train
         train_loss, train_preds, train_labels = run_epoch(
-            model, train_loader, criterion, optimizer, device, is_train=True
+            model, train_loader, criterion, optimizer, device, is_train=True, cfg_training=tc
         )
         train_metrics = compute_metrics(train_preds, train_labels)
         scheduler.step()
 
         # Validate
         val_loss, val_preds, val_labels = run_epoch(
-            model, val_loader, criterion, optimizer=None, device=device, is_train=False
+            model, val_loader, criterion, optimizer=None, device=device, is_train=False, cfg_training=tc
         )
         val_metrics = compute_metrics(val_preds, val_labels)
 

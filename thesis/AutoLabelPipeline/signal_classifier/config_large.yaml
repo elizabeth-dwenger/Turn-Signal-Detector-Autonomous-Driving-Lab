@@ -1,7 +1,5 @@
-# signal_classifier/config_human_inference.yaml
-# Configuration for inference on human-labeled test set.
-# Uses features extracted from human-labeled CSVs (features_human/).
-# All other settings match config.yaml.
+# signal_classifier/config.yaml
+# Configuration for the DINO + TimeSformer-style turn signal classifier.
 
 # ── Data ─────────────────────────────────────────────────────────────────────
 data:
@@ -16,12 +14,12 @@ data:
   # ── Human-labeled CSVs (for final test evaluation) ────────────────────────
   # These contain human ground truth labels instead of VLM predictions.
   # Format is identical to autolabeled CSVs; label column should be 'true_label'
-  # if not, adjust human_label_column below 
+  # or adjust human_label_column below 
   human_test_front_csv: "data/tracking_data_front.csv"
   human_test_back_csv:  "data/tracking_data.csv"
   human_label_column: "true_label"  # column name in human CSV that holds the label
 
-  # Base directory for crop images
+  # Base directory for crop images (crop_path in CSV may be absolute or relative to this)
   crop_base_dir: "/gpfs/space/projects/ml2024/"
 
   # Column in the CSV that holds the VLM-predicted label.
@@ -41,30 +39,39 @@ data:
 
 # ── Feature Extraction (Stage 1 — run once before any training) ──────────────
 features:
-  # DINOv2 ViT-S/14: patch size 14×14, output dim D=384.
-  dino_model_name: "facebook/dinov2-small"
+  # DINOv2 ViT-L/14: patch size 14x14, output dim D=1024.
+  dino_model_name: "facebook/dinov2-large"
   # Uncomment and set to use a local HuggingFace snapshot instead:
   # dino_model_path: ""
 
-  # Crops are stretched to input_size × input_size (simple resize, no letterboxing).
-  # DINOv2 requires multiples of 14; 224 = 16 × 14.
+  # Crops are stretched to input_size * input_size (simple resize, no letterboxing).
+  # DINOv2 requires multiples of 14; 224 = 16 * 14.
   input_size: 224
 
   # P: number of spatial patch tokens per frame after conv pooling inside model
+  # Features extracted will have 256 tokens. The model downsamples them, e.g. to 64.
   spatial_tokens: 64
 
   # Root directory where .pt feature tensors and metadata.json are written.
   # Sub-directories "front/" and "back/" are created automatically.
-  # This uses human-labeled features for evaluation.
-  output_dir: "features/features_human/"
+  output_dir: "features/features_large/"
 
   # Number of frames processed in one DINOv2 forward pass (tunes GPU memory usage).
-  batch_size: 64
+  batch_size: 32
 
   # If true, each sequence also produces a horizontally-flipped copy with swapped
   # left/right label (none→none, left→right, right→left, hazard→hazard).
   # Flipped copies are stored as {key}_hflip.pt and included in training only.
   augment_flip: true
+
+  # Optional photometric augmentation during feature extraction.
+  augment_photometric: false
+  augment_brightness_contrast: false
+  augment_gamma: false
+  augment_noise: false
+  augment_blur: false
+  augment_jpeg: false
+  minority_only_aug: false
 
   device: "cuda"
 
@@ -105,8 +112,22 @@ training:
 
   # Weight the loss inversely by class frequency (computed from training windows).
   use_class_weights: true
+  use_balanced_sampler: false
 
-  checkpoint_dir: "checkpoints/signal_classifier/"
+  # Same-class Mixup over cached feature windows.
+  mixup_enabled: false
+  mixup_alpha: 0.2
+  mixup_prob: 0.0
+  mixup_same_class_only: true
+  mixup_same_camera_only: true
+
+  # Fixed-length temporal augmentation over cached feature windows.
+  temporal_aug_enabled: false
+  temporal_jitter_prob: 0.0
+  temporal_drop_prob: 0.0
+  temporal_duplicate_prob: 0.0
+
+  checkpoint_dir: "checkpoints/signal_classifier_large/"
 
   # Stop training if val accuracy does not improve for this many epochs.
   early_stopping_patience: 10
@@ -116,7 +137,8 @@ training:
 
 # ── Inference ─────────────────────────────────────────────────────────────────
 inference:
-  checkpoint: "checkpoints/signal_classifier/best.pt"
-  output_dir: "results/signal_classifier/"
-  output_format: "csv"    # "csv" or "json"
+  checkpoint: "checkpoints/signal_classifier_large/best.pt"
+  output_dir: "results/signal_classifier_large/"
+  output_format: "csv"    # "csv" or "json"  # For human test split, whether to include per-frame analysis in output
+  # (useful for debugging misclassifications)
   include_per_frame_detail: false

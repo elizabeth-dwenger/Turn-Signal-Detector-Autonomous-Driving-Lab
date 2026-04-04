@@ -259,10 +259,12 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # ── Load model ──────────────────────────────────────────────────────────
+    dino_name = fc.get("dino_model_name", "")
+    d_dino = 1024 if "large" in dino_name else 384
     model = SignalClassifier(
         T          = wc["size"],
         P          = fc["spatial_tokens"],
-        d_dino     = 384,
+        d_dino     = d_dino,
         d_model    = mc["d_model"],
         d_hidden   = mc["d_hidden"],
         num_layers = mc["num_layers"],

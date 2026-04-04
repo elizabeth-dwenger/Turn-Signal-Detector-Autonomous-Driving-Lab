@@ -39,7 +39,7 @@ data:
 
 # ── Feature Extraction (Stage 1 — run once before any training) ──────────────
 features:
-  # DINOv2 ViT-S/14: patch size 14*14, output dim D=384.
+  # DINOv2 ViT-S/14: patch size 14x14, output dim D=384.
   dino_model_name: "facebook/dinov2-small"
   # Uncomment and set to use a local HuggingFace snapshot instead:
   # dino_model_path: ""
@@ -48,14 +48,13 @@ features:
   # DINOv2 requires multiples of 14; 224 = 16 * 14.
   input_size: 224
 
-  # P: number of spatial patch tokens per frame after adaptive average pooling
-  # from the 256 raw tokens (16*16 grid).  Experiment with: 8, 16, 32, 64.
-  # More = more spatial detail, more memory; 32 is the recommended starting point.
-  spatial_tokens: 32
+  # P: number of spatial patch tokens per frame after conv pooling inside model
+  # Features extracted will have 256 tokens. The model downsamples them, e.g. to 64.
+  spatial_tokens: 64
 
   # Root directory where .pt feature tensors and metadata.json are written.
   # Sub-directories "front/" and "back/" are created automatically.
-  output_dir: "features/"
+  output_dir: "features/features_small/"
 
   # Number of frames processed in one DINOv2 forward pass (tunes GPU memory usage).
   batch_size: 64
@@ -65,6 +64,15 @@ features:
   # Flipped copies are stored as {key}_hflip.pt and included in training only.
   augment_flip: true
 
+  # Optional photometric augmentation during feature extraction.
+  augment_photometric: false
+  augment_brightness_contrast: false
+  augment_gamma: false
+  augment_noise: false
+  augment_blur: false
+  augment_jpeg: false
+  minority_only_aug: false
+
   device: "cuda"
 
 # ── Sliding Window ────────────────────────────────────────────────────────────
@@ -73,10 +81,10 @@ window:
   size: 10
 
   # Step between consecutive windows during training (~50 % overlap).
-  train_stride: 5
+  train_stride: 3
 
   # Denser step at inference for smoother per-window predictions.
-  inference_stride: 2
+  inference_stride: 3
 
   # A window is kept for training only if at least this fraction of its frames
   # share the same label (handles VLM noise near segment boundaries).
@@ -104,6 +112,20 @@ training:
 
   # Weight the loss inversely by class frequency (computed from training windows).
   use_class_weights: true
+  use_balanced_sampler: false
+
+  # Same-class Mixup over cached feature windows.
+  mixup_enabled: false
+  mixup_alpha: 0.2
+  mixup_prob: 0.0
+  mixup_same_class_only: true
+  mixup_same_camera_only: true
+
+  # Fixed-length temporal augmentation over cached feature windows.
+  temporal_aug_enabled: false
+  temporal_jitter_prob: 0.0
+  temporal_drop_prob: 0.0
+  temporal_duplicate_prob: 0.0
 
   checkpoint_dir: "checkpoints/signal_classifier/"
 
