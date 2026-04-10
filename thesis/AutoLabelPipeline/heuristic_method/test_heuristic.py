@@ -9,6 +9,7 @@ import argparse
 from pathlib import Path
 import json
 import logging
+import csv
 import yaml
 from tqdm import tqdm
 from datetime import datetime
@@ -311,12 +312,13 @@ def _compute_event_metrics(
 
 def test_heuristic(
     config_path: str,
-    test_sequences_file: str,
+    test_sequences_file: Optional[str] = None,
     output_dir: str = "prompt_comparison",
     verbose: bool = False,
     fps: float = None,
     activity_threshold: float = 1000.0,
-    hazard_ratio_threshold: float = 0.7
+    hazard_ratio_threshold: float = 0.7,
+    export_frame_csv: bool = False,
 ) -> Dict:
     """
     Run heuristic detector on test sequences.
@@ -343,17 +345,20 @@ def test_heuristic(
     if fps is not None:
         effective_fps = fps
     
-    # Load test sequence IDs
-    with open(test_sequences_file, 'r') as f:
-        test_set = json.load(f)
-        sequence_ids = test_set['sequence_ids']
-    
-    # Override config for test sequences
-    config.data.sequence_filter = sequence_ids
-    config.data.max_sequences = None
+    sequence_ids = None
+    test_set = None
+    if test_sequences_file:
+        with open(test_sequences_file, 'r') as f:
+            test_set = json.load(f)
+            sequence_ids = test_set['sequence_ids']
+        config.data.sequence_filter = sequence_ids
+        config.data.max_sequences = None
     
     print(f"\nTesting heuristic method")
-    print(f"Test sequences: {len(sequence_ids)}")
+    if sequence_ids is not None:
+        print(f"Test sequences: {len(sequence_ids)}")
+    else:
+        print("Test sequences: all sequences in input CSV")
     print(f"FPS: {effective_fps}")
     print(f"Activity threshold: {activity_threshold}")
     print(f"Hazard ratio threshold: {hazard_ratio_threshold}")
@@ -384,6 +389,7 @@ def test_heuristic(
     
     # Run inference
     results = []
+    frame_rows = []
     all_y_true = []
     all_y_pred = []
     event_metrics_accum = {"tp": 0, "fp": 0, "fn": 0}
@@ -434,6 +440,8 @@ def test_heuristic(
             
             # Convert to frame predictions for metrics
             frame_preds = _segments_to_frames(prediction, actual_frame_ids, effective_fps)
+            frame_pred_by_id = {p["frame_id"]: p for p in frame_preds}
+            true_by_id = None
             
             # Compute metrics if ground truth available
             if sequence.has_ground_truth:
@@ -452,10 +460,24 @@ def test_heuristic(
                 event_metrics_accum["tp"] += ev["tp"]
                 event_metrics_accum["fp"] += ev["fp"]
                 event_metrics_accum["fn"] += ev["fn"]
+
+            for frame in sequence.frames:
+                pred = frame_pred_by_id.get(frame.frame_id)
+                predicted_label = _normalize_label(pred["label"]) if pred else "none"
+                row = {
+                    "sequence_id": sequence.sequence_id,
+                    "track_id": sequence.track_id,
+                    "frame_id": frame.frame_id,
+                    "label": predicted_label,
+                }
+                if sequence.has_ground_truth:
+                    row["true_label"] = (true_by_id or {}).get(frame.frame_id, "none")
+                frame_rows.append(row)
             
             # Store result
             results.append({
                 'sequence_id': sequence.sequence_id,
+                'track_id': sequence.track_id,
                 'num_frames': sequence.num_frames,
                 'ground_truth': sequence.ground_truth_label if sequence.has_ground_truth else None,
                 'prediction': prediction,
@@ -548,6 +570,17 @@ def test_heuristic(
     
     with open(summary_file, 'w') as f:
         json.dump(summary, f, indent=2, default=str)
+
+    if export_frame_csv and frame_rows:
+        frame_csv_path = run_output_dir / "frame_predictions.csv"
+        fieldnames = ["sequence_id", "track_id", "frame_id", "label"]
+        if "true_label" in frame_rows[0]:
+            fieldnames.append("true_label")
+        with open(frame_csv_path, "w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(frame_rows)
+        print(f" Frame-level CSV saved to {frame_csv_path}")
     
     # Print results
     print(f"\n Results saved to {result_file}")
@@ -589,8 +622,8 @@ def main():
     parser.add_argument(
         "--test-sequences",
         type=str,
-        required=True,
-        help="JSON file with test sequence_ids"
+        default=None,
+        help="Optional JSON file with test sequence_ids"
     )
     parser.add_argument(
         "--output-dir",
@@ -621,6 +654,11 @@ def main():
         action="store_true",
         help="Enable verbose logging"
     )
+    parser.add_argument(
+        "--export-frame-csv",
+        action="store_true",
+        help="Export unified frame-level CSV for reconstruction/training workflows"
+    )
     
     args = parser.parse_args()
     
@@ -631,7 +669,8 @@ def main():
         verbose=args.verbose,
         fps=args.fps,
         activity_threshold=args.activity_threshold,
-        hazard_ratio_threshold=args.hazard_ratio
+        hazard_ratio_threshold=args.hazard_ratio,
+        export_frame_csv=args.export_frame_csv,
     )
 
 

@@ -40,9 +40,22 @@ def _safe_filename(sequence_id: str) -> str:
     return sequence_id.replace("/", "_").replace("\\", "_")
 
 
+def _strip_track_suffix(sequence_id: str) -> tuple[str, int | None]:
+    """
+    Normalize sequence ids that may already contain ``__track_<id>``.
+    Returns ``(base_sequence_id, embedded_track_id)``.
+    """
+    match = re.match(r"^(.*)__track_(\d+)$", str(sequence_id))
+    if not match:
+        return str(sequence_id), None
+    return match.group(1), int(match.group(2))
+
+
 def _build_sequence_key(sequence_id: str, track_id: int) -> str:
     """Build the key used by the pipeline: ``sequence_id__track_<track_id>``."""
-    return f"{sequence_id}__track_{track_id}"
+    base_sequence_id, embedded_track_id = _strip_track_suffix(sequence_id)
+    resolved_track_id = embedded_track_id if embedded_track_id is not None else int(track_id)
+    return f"{base_sequence_id}__track_{resolved_track_id}"
 
 
 def _safe_sequence_key(sequence_id: str, track_id: int) -> str:
@@ -58,6 +71,56 @@ def load_predictions(results_dir: Path) -> dict:
     """
     Load all per-sequence prediction CSVs from a pipeline run directory.
     """
+    unified_frame_csv = results_dir / "frame_predictions.csv"
+    if unified_frame_csv.exists():
+        df = pd.read_csv(unified_frame_csv)
+        required = {"sequence_id", "track_id", "frame_id", "label"}
+        missing = required - set(df.columns)
+        if missing:
+            sys.exit(
+                "ERROR: frame_predictions.csv is missing required columns: "
+                + ", ".join(sorted(missing))
+            )
+
+        predictions = {}
+        for (sequence_id, track_id), group in df.groupby(["sequence_id", "track_id"], sort=False):
+            normalized_sequence_id, embedded_track_id = _strip_track_suffix(str(sequence_id))
+            resolved_track_id = embedded_track_id if embedded_track_id is not None else int(track_id)
+            key = _safe_sequence_key(normalized_sequence_id, resolved_track_id)
+            predictions[key] = group.sort_values("frame_id").reset_index(drop=True)
+
+        print(
+            f"  Loaded unified frame predictions for {len(predictions)} sequences "
+            f"from {unified_frame_csv}"
+        )
+        return predictions
+
+    results_json = results_dir / "results.json"
+    if results_json.exists():
+        with open(results_json) as f:
+            payload = json.load(f)
+
+        predictions = {}
+        for item in payload.get("results", []):
+            sequence_id = item.get("sequence_id")
+            track_id = item.get("track_id")
+            if sequence_id is None or track_id is None:
+                continue
+
+            normalized_sequence_id, embedded_track_id = _strip_track_suffix(str(sequence_id))
+            resolved_track_id = embedded_track_id if embedded_track_id is not None else int(track_id)
+            key = _safe_sequence_key(normalized_sequence_id, resolved_track_id)
+            predictions[key] = {
+                "label": item.get("prediction", {}).get("label", "none"),
+                "segments": item.get("prediction", {}).get("segments", []),
+            }
+
+        print(
+            f"  Loaded sequence-level heuristic predictions for {len(predictions)} sequences "
+            f"from {results_json}"
+        )
+        return predictions
+
     csv_files = sorted(results_dir.glob("*.csv"))
 
     # Exclude metadata / summary files produced by the pipeline
@@ -105,16 +168,29 @@ def _match_key(row_seq_id: str, row_track_id: int, pred_keys: set) -> str | None
     The pipeline saves files as ``<safe_sequence_key>.csv`` where the key is
     ``sequence_id__track_<track_id>`` with slashes turned into underscores.
     """
-    candidate = _safe_sequence_key(row_seq_id, row_track_id)
-    if candidate in pred_keys:
-        return candidate
+    candidate_keys = []
+
+    candidate_keys.append(_safe_sequence_key(row_seq_id, row_track_id))
+
+    normalized_row_seq_id, embedded_track_id = _strip_track_suffix(row_seq_id)
+    if normalized_row_seq_id != row_seq_id or embedded_track_id is not None:
+        candidate_keys.append(
+            _safe_sequence_key(
+                normalized_row_seq_id,
+                embedded_track_id if embedded_track_id is not None else row_track_id,
+            )
+        )
+
+    for candidate in candidate_keys:
+        if candidate in pred_keys:
+            return candidate
 
     # Fallback: try matching with different track_id formatting
     # (e.g. zero-padded, etc.) — unlikely but defensive
     for key in pred_keys:
         if key.endswith(f"__track_{row_track_id}"):
             prefix = key[: -(len(f"__track_{row_track_id}"))]
-            if prefix == _safe_filename(row_seq_id):
+            if prefix in {_safe_filename(row_seq_id), _safe_filename(normalized_row_seq_id)}:
                 return key
 
     return None
@@ -126,7 +202,7 @@ def _match_key(row_seq_id: str, row_track_id: int, pred_keys: set) -> str | None
 
 def propagate_labels(
     original_group: pd.DataFrame,
-    pred_df: pd.DataFrame,
+    pred_df,
 ) -> pd.Series:
     """
     For a single (sequence_id, track_id) group, produce a predicted label
@@ -141,10 +217,29 @@ def propagate_labels(
        If the earliest frames have no prediction, **back-fill** those
        (``bfill``) so no NaN remains.
     """
-    pred_map = dict(zip(pred_df["frame_id"], pred_df["label"]))
-
-    # Ensure sorted by frame_id
     group_sorted = original_group.sort_values("frame_id").copy()
+
+    if isinstance(pred_df, dict):
+        group_sorted["_pred"] = pred_df.get("label", "none")
+        segments = pred_df.get("segments", []) or []
+
+        if segments:
+            group_sorted["_pred"] = "none"
+            labels_by_position = ["none"] * len(group_sorted)
+            default_label = pred_df.get("label", "none")
+
+            for seg in segments:
+                label = seg.get("label", default_label)
+                start = max(0, int(seg.get("start_frame", 0)))
+                end = min(len(labels_by_position) - 1, int(seg.get("end_frame", len(labels_by_position) - 1)))
+                for idx in range(start, end + 1):
+                    labels_by_position[idx] = label
+
+            group_sorted["_pred"] = labels_by_position
+
+        return group_sorted.set_index(group_sorted.index)["_pred"]
+
+    pred_map = dict(zip(pred_df["frame_id"], pred_df["label"]))
 
     # Map known predictions
     group_sorted["_pred"] = group_sorted["frame_id"].map(pred_map)
@@ -237,7 +332,22 @@ def reconstruct(
         matched_sequences += 1
 
         # Count how many frames have direct predictions
-        direct_hits = group["frame_id"].isin(pred_df["frame_id"]).sum()
+        if isinstance(pred_df, dict):
+            segments = pred_df.get("segments", []) or []
+            if segments:
+                predicted_ids = set()
+                group_sorted = group.sort_values("frame_id")
+                frame_ids = list(group_sorted["frame_id"])
+                for seg in segments:
+                    start = max(0, int(seg.get("start_frame", 0)))
+                    end = min(len(frame_ids) - 1, int(seg.get("end_frame", len(frame_ids) - 1)))
+                    for idx in range(start, end + 1):
+                        predicted_ids.add(frame_ids[idx])
+                direct_hits = group["frame_id"].isin(predicted_ids).sum()
+            else:
+                direct_hits = len(group)
+        else:
+            direct_hits = group["frame_id"].isin(pred_df["frame_id"]).sum()
         total_predicted_frames += direct_hits
         total_propagated_frames += len(group) - direct_hits
 

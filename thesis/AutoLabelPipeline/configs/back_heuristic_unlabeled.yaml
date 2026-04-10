@@ -1,0 +1,17 @@
+# Heuristic detector config for back unlabeled dataset.
+
+data:
+  input_csv: "data/back_unlabeled_default_none_label.csv"
+  crop_base_dir: "/gpfs/space/projects/ml2024/"
+  frame_base_dir: null
+  max_sequences: null
+  sequence_filter: null
+  video_fps: 10
+
+preprocessing:
+  resize_resolution: [640, 480]
+  normalize: true
+  maintain_aspect_ratio: true
+  padding_color: [0, 0, 0]
+  max_sequence_length: null
+  sequence_stride: 1

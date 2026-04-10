@@ -1,11 +1,15 @@
-# Experiment R1: baseline large-model training with balanced sampling.
+# Experiment R1 (Human Evaluation): baseline large-model training with balanced sampling.
+# Evaluates r1 checkpoint on human-labeled test set.
 
 data:
-  front_csv: "results/reconstructed_cosmos_front_results_unlabeled_prompt5.csv"
-  back_csv:  "results/reconstructed_cosmos_results_unlabeled.csv"
+  # Human test CSVs for evaluation
   human_test_front_csv: "data/tracking_data_front.csv"
   human_test_back_csv:  "data/tracking_data.csv"
   human_label_column: "true_label"
+
+  # Required by dataset/inference code paths
+  front_csv: "results/reconstructed_cosmos_front_results_unlabeled_prompt5.csv"
+  back_csv:  "results/reconstructed_cosmos_results_unlabeled.csv"
   crop_base_dir: "/gpfs/space/projects/ml2024/"
   label_column: "predicted_label"
   min_sequence_frames: 10
@@ -17,16 +21,9 @@ features:
   dino_model_name: "facebook/dinov2-small"
   input_size: 224
   spatial_tokens: 64
-  output_dir: "/gpfs/helios/home/dwenger/AutoLabelPipeline/features/features_small/"
+  output_dir: "/gpfs/helios/home/dwenger/AutoLabelPipeline/features/features_human/"
   batch_size: 32
-  augment_flip: true
-  augment_photometric: false
-  augment_brightness_contrast: false
-  augment_gamma: false
-  augment_noise: false
-  augment_blur: false
-  augment_jpeg: false
-  minority_only_aug: false
+  augment_flip: false
   device: "cuda"
 
 window:
@@ -43,6 +40,7 @@ model:
   dropout: 0.1
 
 training:
+  # Not used for inference, but needed for device lookup
   epochs: 10
   batch_size: 8
   learning_rate: 3.0e-4
@@ -50,16 +48,6 @@ training:
   loss: "cross_entropy"
   focal_gamma: 2.0
   use_class_weights: true
-  use_balanced_sampler: true
-  mixup_enabled: false
-  mixup_alpha: 0.2
-  mixup_prob: 0.0
-  mixup_same_class_only: true
-  mixup_same_camera_only: true
-  temporal_aug_enabled: false
-  temporal_jitter_prob: 0.0
-  temporal_drop_prob: 0.0
-  temporal_duplicate_prob: 0.0
   checkpoint_dir: "/gpfs/helios/home/dwenger/AutoLabelPipeline/checkpoints/signal_classifier_large/r1/"
   early_stopping_patience: 10
   device: "cuda"
@@ -67,6 +55,6 @@ training:
 
 inference:
   checkpoint: "/gpfs/helios/home/dwenger/AutoLabelPipeline/checkpoints/signal_classifier_large/r1/best.pt"
-  output_dir: "/gpfs/helios/home/dwenger/AutoLabelPipeline/results/signal_classifier_large/r1/"
+  output_dir: "/gpfs/helios/home/dwenger/AutoLabelPipeline/results/signal_classifier_human_eval_r1/"
   output_format: "csv"
   include_per_frame_detail: false

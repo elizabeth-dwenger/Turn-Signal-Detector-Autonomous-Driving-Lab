@@ -59,7 +59,7 @@ features:
   output_dir: "features/features_human/"
 
   # Number of frames processed in one DINOv2 forward pass (tunes GPU memory usage).
-  batch_size: 64
+  batch_size: 8
 
   # If true, each sequence also produces a horizontally-flipped copy with swapped
   # left/right label (none→none, left→right, right→left, hazard→hazard).
@@ -95,7 +95,7 @@ model:
 # ── Training ──────────────────────────────────────────────────────────────────
 training:
   epochs: 50
-  batch_size: 64
+  batch_size: 8
   learning_rate: 3.0e-4
   weight_decay: 1.0e-4
 
